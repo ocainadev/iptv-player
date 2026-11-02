@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">IPTV Player</string>
+    <string name="title_activity_main">IPTV Player</string>
+    <string name="package_name">local.personal.iptvplayer</string>
+    <string name="custom_url_scheme">local.personal.iptvplayer</string>
+</resources>

@@ -1,0 +1,12 @@
+node_modules/
+out/
+dist/
+.DS_Store
+.claude
+dist-web/
+
+# Android signing keys: never commit
+*.jks
+*.keystore
+keystore.properties
+dist-web

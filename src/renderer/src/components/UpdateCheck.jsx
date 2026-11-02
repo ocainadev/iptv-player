@@ -1,4 +1,9 @@
 import { useEffect, useState } from 'react'
+import { isNative } from '../lib/native'
+import { androidUpdater } from '../lib/androidUpdate'
+
+// Desktop: bridge from the preload script. Android: manual check against GitHub.
+const updater = isNative ? androidUpdater : window.updater
 
 // "Check for updates" button backed by the GitHub releases of the project.
 // Installed Windows builds download and install in-app; elsewhere it opens the installer download.
@@ -7,9 +12,9 @@ export default function UpdateCheck() {
 
   useEffect(() => {
     const offs = [
-      window.updater.onProgress((percent) => setState((s) => (s.status === 'downloading' ? { ...s, percent } : s))),
-      window.updater.onDownloaded(() => setState((s) => ({ ...s, status: 'ready' }))),
-      window.updater.onFailed(() =>
+      updater.onProgress((percent) => setState((s) => (s.status === 'downloading' ? { ...s, percent } : s))),
+      updater.onDownloaded(() => setState((s) => ({ ...s, status: 'ready' }))),
+      updater.onFailed(() =>
         setState((s) => (s.status === 'downloading' ? { status: 'error', message: 'Falha ao baixar a atualização.' } : s))
       )
     ]
@@ -18,7 +23,7 @@ export default function UpdateCheck() {
 
   async function check() {
     setState({ status: 'checking' })
-    const r = await window.updater.check()
+    const r = await updater.check()
     if (!r.ok) setState({ status: 'error', message: r.error })
     else if (r.hasUpdate) setState({ status: 'available', info: r })
     else setState({ status: 'latest', current: r.current })
@@ -26,7 +31,7 @@ export default function UpdateCheck() {
 
   async function download() {
     setState((s) => ({ ...s, status: 'downloading', percent: 0 }))
-    const ok = await window.updater.download()
+    const ok = await updater.download()
     if (!ok) setState({ status: 'error', message: 'Falha ao baixar a atualização.' })
   }
 
@@ -39,7 +44,7 @@ export default function UpdateCheck() {
         {info.mode === 'auto' ? (
           <button className="btn primary small" onClick={download}>Baixar e instalar</button>
         ) : (
-          <button className="btn primary small" onClick={() => window.updater.open(info.downloadUrl)}>
+          <button className="btn primary small" onClick={() => updater.open(info.downloadUrl)}>
             Baixar atualização
           </button>
         )}
@@ -53,7 +58,7 @@ export default function UpdateCheck() {
     return (
       <div className="update-check">
         <span>Atualização pronta.</span>
-        <button className="btn primary small" onClick={() => window.updater.install()}>Reiniciar e instalar</button>
+        <button className="btn primary small" onClick={() => updater.install()}>Reiniciar e instalar</button>
       </div>
     )
   }

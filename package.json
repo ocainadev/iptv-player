@@ -9,11 +9,19 @@
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "start": "electron-vite preview",
+    "build:web": "vite build --config vite.web.config.mjs",
+    "android:sync": "npm run build:web && cap sync android",
+    "android:open": "cap open android",
     "dist:mac": "electron-vite build && electron-builder --mac",
     "dist:win": "electron-vite build && electron-builder --win",
-    "dist": "electron-vite build && electron-builder --mac --win"
+    "dist": "electron-vite build && electron-builder --mac --win",
+    "android:apk": "npm run android:sync && cd android && ./gradlew assembleRelease && mkdir -p ../dist && cp app/build/outputs/apk/release/app-release.apk ../dist/IPTV-Player-$npm_package_version.apk"
   },
   "dependencies": {
+    "@capacitor/android": "^8.6.0",
+    "@capacitor/app": "^8.1.2",
+    "@capacitor/core": "^8.6.0",
+    "@capacitor/screen-orientation": "^8.0.2",
     "electron-updater": "^6.8.11",
     "hls.js": "^1.7.4",
     "mpegts.js": "^1.8.2",
@@ -22,6 +30,7 @@
     "react-router-dom": "^7.18.5"
   },
   "devDependencies": {
+    "@capacitor/cli": "^8.6.0",
     "@vitejs/plugin-react": "^6.1.2",
     "electron": "^45.2.1",
     "electron-builder": "^26.18.0",

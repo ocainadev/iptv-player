@@ -1,0 +1,17 @@
+{
+  "appId": "local.personal.iptvplayer",
+  "appName": "IPTV Player",
+  "webDir": "dist-web",
+  "server": {
+    "androidScheme": "http",
+    "cleartext": true
+  },
+  "android": {
+    "allowMixedContent": true
+  },
+  "plugins": {
+    "CapacitorHttp": {
+      "enabled": true
+    }
+  }
+}

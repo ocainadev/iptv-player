@@ -247,4 +247,119 @@ input:focus { border-color: var(--accent); }
 .player-modal header h2 { margin: 0; font-size: 16px; }
 .player-modal .player { flex: 1; aspect-ratio: auto; border-radius: 0; }
 
+
 .update-check { display: flex; align-items: center; gap: 12px; margin-top: 32px; font-size: 13px; }
+
+/* Android fullscreen: a fixed layer, since the Fullscreen API is unreliable in the WebView. */
+.player.native-fs {
+  position: fixed; inset: 0; z-index: 200; width: 100vw; height: 100vh;
+  border-radius: 0; aspect-ratio: auto;
+}
+
+/* System bar insets (Android edge-to-edge). Capacitor injects --safe-area-inset-*;
+   env() covers browsers that implement it. Both are 0 on desktop. */
+:root {
+  --safe-top: var(--safe-area-inset-top, env(safe-area-inset-top, 0px));
+  --safe-right: var(--safe-area-inset-right, env(safe-area-inset-right, 0px));
+  --safe-bottom: var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px));
+  --safe-left: var(--safe-area-inset-left, env(safe-area-inset-left, 0px));
+}
+body { padding: var(--safe-top) var(--safe-right) 0 var(--safe-left); }
+.player.native-fs, .player-modal { padding: 0; }
+.player-modal { padding: var(--safe-top) var(--safe-right) var(--safe-bottom) var(--safe-left); }
+
+/* Touch screens have no hover: keep the player toolbar visible, with fewer buttons. */
+@media (hover: none) {
+  .player-toolbar { opacity: .9; }
+  .player-toolbar .zoom-btn { display: none; }
+  .btn, .tabs button, .category-list button { min-height: 40px; }
+  .channel { padding: 10px 8px; }
+}
+
+/* Phone (portrait or narrow window) */
+@media (max-width: 820px) {
+  h1 { font-size: 22px; }
+  .brand { font-size: 28px; }
+  .pad { padding: 12px; }
+
+  .page-center { padding: 24px 16px; justify-content: flex-start; }
+  .profile-grid { width: 100%; flex-direction: column; align-items: stretch; margin-top: 20px; }
+  .profile-card { width: 100%; }
+  .card { padding: 20px; }
+
+  /* Top bar keeps brand + list name; the sections move to a bottom tab bar. */
+  .topbar { padding: 0 12px; gap: 12px; height: 48px; flex-basis: 48px; }
+  .topbar nav {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 50;
+    padding: 0 var(--safe-right) var(--safe-bottom) var(--safe-left);
+    background: var(--panel); border-top: 1px solid var(--line); gap: 0;
+  }
+  .topbar nav a { flex: 1; text-align: center; padding: 14px 2px; font-size: 12px; border-radius: 0; }
+  .topbar nav a.active { background: none; color: var(--accent-2); box-shadow: inset 0 2px 0 var(--accent); }
+  .profile-name { flex: 1; text-align: right; overflow: hidden; text-overflow: ellipsis; font-size: 13px; }
+  .content { padding-bottom: calc(48px + var(--safe-bottom)); }
+
+  .home, .search-page { padding: 16px; gap: 20px; }
+
+  /* Category sidebars become a horizontal strip. */
+  .category-list {
+    flex-direction: row; overflow-x: auto; overflow-y: hidden; gap: 4px;
+    border-right: 0; border-bottom: 1px solid var(--line); padding: 6px 8px;
+  }
+  .category-list button { flex: 0 0 auto; white-space: nowrap; }
+
+  .live-layout { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto minmax(0, 1fr); }
+  .live-layout .category-list { order: 1; }
+  .live-preview { order: 2; max-height: 42vh; padding: 8px 12px; border-bottom: 1px solid var(--line); }
+  .live-preview .center-state { min-height: 0; height: auto; padding: 8px; }
+  .channel-list { order: 3; border-right: 0; padding: 8px; }
+
+  .catalog-layout { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+  .catalog-main { padding: 12px; }
+  .poster-grid { grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 12px; }
+  .poster-row .poster { flex-basis: 120px; }
+
+  .detail { padding: 16px; }
+  .detail-body { flex-direction: column; gap: 16px; align-items: center; }
+  .detail-poster { width: 160px; flex-basis: auto; }
+  .episode-img { width: 112px; flex-basis: 112px; }
+  .episode-list button { gap: 10px; }
+
+  .player-modal header { padding: 8px 12px; }
+}
+
+/* Phone in landscape: little height, so the bars get thinner. */
+@media (max-height: 480px) and (orientation: landscape) {
+  .topbar { height: 40px; flex-basis: 40px; }
+  .player-modal header { padding: 4px 12px; }
+}
+
+/* TV / remote control: the focus ring is the pointer, so it must be obvious. */
+.player-hud {
+  position: absolute; left: 50%; bottom: 12%; transform: translateX(-50%);
+  padding: 10px 22px; border-radius: 999px; background: #000b; color: #fff; font-size: 20px;
+  pointer-events: none;
+}
+html.tv body { padding: 18px 36px; font-size: 18px; }
+.tv *::-webkit-scrollbar { display: none; }
+.tv :focus { outline: 3px solid var(--accent-2); outline-offset: 2px; }
+.tv .player:focus { outline-offset: -3px; }
+.tv .player.native-fs:focus { outline: 0; }
+.tv .poster > a:focus .poster-img, .tv .poster > button:focus .poster-img { transform: scale(1.05); }
+.tv .channel-list li:focus-within, .tv .category-list button:focus { background: var(--panel-2); }
+.tv .btn, .tv .tabs button, .tv .category-list button { min-height: 44px; }
+.tv .channel { padding: 10px 8px; }
+
+/* Android ExoPlayer: the picture is a native view behind the WebView, so everything
+   above the slot must be see-through. */
+.exo-slot { position: absolute; inset: 0; }
+.exo-clear { background: transparent !important; }
+.exo-bar {
+  position: absolute; left: 0; right: 0; bottom: 0; z-index: 2;
+  display: flex; align-items: center; gap: 10px; padding: 8px 12px;
+  background: linear-gradient(to top, #000a, transparent);
+}
+.exo-bar button { color: #fff; font-size: 20px; padding: 4px 10px; }
+.exo-bar input[type=range] { flex: 1; accent-color: var(--accent); }
+.exo-hide { visibility: hidden !important; }
+.exo-clear::before, .exo-clear::after { background: transparent !important; }

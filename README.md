@@ -53,9 +53,26 @@ Builds are not signed with a paid certificate:
 - **macOS**: on first open, right-click the app → Open → Open. Or: System Settings → Privacy & Security → Open Anyway.
 - **Windows**: SmartScreen shows "Windows protected your PC" → More info → Run anyway.
 
+## Android (phone and TV)
+
+The same React app runs on Android through Capacitor, with video decoded natively by ExoPlayer (HEVC, MKV, MPEG-TS, HLS). The app detects Android TV and switches to the remote-control interface.
+
+Requirements: JDK 21 (Gradle 8 does not run on JDK 25+) and the Android SDK.
+
+```bash
+export JAVA_HOME=/path/to/jdk-21
+npm run android:apk   # dist/IPTV-Player-<version>.apk, signed
+```
+
+The version comes from `package.json`. Signing uses `android/keystore.properties` (git-ignored), which points to a keystore kept **outside** the repository. Back up that keystore and its passwords: an APK signed with a different key cannot update an installed one, and Android refuses it.
+
+Without `keystore.properties` the release build is unsigned. To install on a TV, use `adb install` or send the APK to the device and open it.
+
+To release: bump `version` in `package.json`, run the desktop builds and `npm run android:apk`, then attach the `.apk` to the GitHub release (tag = version). The app's "Verificar atualizações" button reads the latest release and opens the `.apk` download.
+
 ## Limitations
 
-The player runs on Chromium, which does not decode every format IPTV servers send:
+On desktop the player runs on Chromium, which does not decode every format IPTV servers send:
 
 - MKV containers, HEVC/H.265 video and AC3/E-AC3/DTS audio may not play. The player shows a message when that happens.
 - For live channels, the app requests `.m3u8` (HLS) and falls back to `.ts` when the server does not provide HLS.

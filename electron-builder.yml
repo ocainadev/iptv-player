@@ -21,6 +21,8 @@ win:
     - target: portable
       arch: [x64]
 nsis:
+  # No spaces: GitHub renames spaces to dots on upload, which would break the name in latest.yml.
+  artifactName: IPTV-Player-Setup-${version}.${ext}
   oneClick: false
   allowToChangeInstallationDirectory: true
 # Where the installed app (electron-updater) looks for new versions. Keep in sync with src/main/updater.js.
