@@ -42,6 +42,8 @@ export default function Player({ url, fallbackUrl, isLive = false, startAt = 0, 
   // Audio and subtitle tracks of the current stream, and how to switch them.
   const [tracks, setTracks] = useState({ audio: [], text: [] })
   const [menuOpen, setMenuOpen] = useState(false)
+  // TV: the remote's arrows move focus into the control bar (down) and back to the picture (up/back).
+  const [barFocus, setBarFocus] = useState(false)
   const hasTracks = tracks.audio.length > 1 || tracks.text.length > 0
   // Picture-in-picture: the browser's own floating video window (desktop only).
   const canPip = !isNative && !!document.pictureInPictureEnabled
@@ -53,6 +55,8 @@ export default function Player({ url, fallbackUrl, isLive = false, startAt = 0, 
     else video.requestPictureInPicture().catch(() => {})
   }
   const trackApi = useRef({ select: () => {} })
+  // Playback state shown in the control bar, on both engines.
+  const [media, setMedia] = useState({ position: 0, duration: -1, playing: false, volume: 1, muted: false })
   const engineRef = useRef(null) // { teardown } of the running <video> engine
   const handedOff = useRef(false)
   // Runs on unmount, before React removes the player's DOM: a floating video must not go with it.
@@ -103,6 +107,7 @@ export default function Player({ url, fallbackUrl, isLive = false, startAt = 0, 
         await NativePlayer.addListener('state', ({ state }) => setLoading(state === 'buffering')),
         await NativePlayer.addListener('time', (t) => {
           exo.current = t
+          setMedia((m) => ({ ...m, position: t.position, duration: t.duration, playing: t.playing }))
           if (!onProgress || isLive || t.position <= 0) return
           const now = Date.now()
           if (now - lastReport < 5000) return
@@ -141,6 +146,15 @@ export default function Player({ url, fallbackUrl, isLive = false, startAt = 0, 
     endPipSession()
     setLoading(true)
     setError('')
+    try {
+      const saved = JSON.parse(localStorage.getItem(VOLUME_KEY))
+      if (saved) {
+        video.volume = saved.volume
+        video.muted = saved.muted
+      }
+    } catch {
+      // no saved volume
+    }
 
     let hls = null
     let ts = null
@@ -248,6 +262,18 @@ export default function Player({ url, fallbackUrl, isLive = false, startAt = 0, 
       onProgress(video.currentTime, video.duration)
     }
 
+    const syncMedia = () =>
+      setMedia({
+        position: video.currentTime || 0,
+        duration: isFinite(video.duration) ? video.duration : -1,
+        playing: !video.paused,
+        volume: video.volume,
+        muted: video.muted
+      })
+    const mediaEvents = ['timeupdate', 'play', 'pause', 'durationchange', 'volumechange']
+    mediaEvents.forEach((ev) => video.addEventListener(ev, syncMedia))
+    syncMedia()
+
     video.addEventListener('loadedmetadata', onLoaded)
     video.addEventListener('playing', onPlaying)
     video.addEventListener('waiting', onWaiting)
@@ -286,6 +312,7 @@ export default function Player({ url, fallbackUrl, isLive = false, startAt = 0, 
       video.removeEventListener('waiting', onWaiting)
       video.removeEventListener('error', onVideoError)
       video.removeEventListener('timeupdate', onTime)
+      mediaEvents.forEach((ev) => video.removeEventListener(ev, syncMedia))
       teardown()
     }
     // onProgress is intentionally left out: a new callback identity must not restart playback.
@@ -301,6 +328,7 @@ export default function Player({ url, fallbackUrl, isLive = false, startAt = 0, 
   const [hud, setHud] = useState(null)
   // Toolbar and touch controls fade out after a few seconds without interaction.
   const [idle, setIdle] = useState(false)
+  const hideControls = idle && media.playing
   const idleTimer = useRef(null)
   const wake = () => {
     setIdle(false)
@@ -322,6 +350,13 @@ export default function Player({ url, fallbackUrl, isLive = false, startAt = 0, 
     const onBack = (e) => {
       // An open track menu takes the back press (its own handler closes it).
       if (containerRef.current?.classList.contains('menu-open')) return
+      if (containerRef.current?.classList.contains('bar-focus')) {
+        // First back press only returns from the control bar to the picture.
+        e.preventDefault()
+        setBarFocus(false)
+        containerRef.current.focus()
+        return
+      }
       e.preventDefault()
       setNativeFs(false)
     }
@@ -371,7 +406,10 @@ export default function Player({ url, fallbackUrl, isLive = false, startAt = 0, 
     if (key === 'Enter' || key === ' ' || key === 'MediaPlayPause') {
       if (!nativeFs && key !== 'MediaPlayPause') fullscreen()
       else toggle()
-    } else if (hasTracks && (key === 'ArrowDown' || key === 'ArrowUp' || key === 'ContextMenu')) setMenuOpen(true)
+    } else if (key === 'ArrowDown') {
+      setBarFocus(true)
+      containerRef.current?.querySelector('.control-bar button')?.focus()
+    } else if (hasTracks && (key === 'ArrowUp' || key === 'ContextMenu')) setMenuOpen(true)
     else if (nativeFs && (key === 'ArrowRight' || key === 'MediaFastForward')) seek(10)
     else if (nativeFs && (key === 'ArrowLeft' || key === 'MediaRewind')) seek(-10)
     else return
@@ -391,12 +429,16 @@ export default function Player({ url, fallbackUrl, isLive = false, startAt = 0, 
       else if (key === 'f') fullscreen()
       else if (key === 'c' && hasTracks) setMenuOpen((o) => !o)
       else if (key === 'p' && canPip && !tv) togglePip()
+      else if (!isNative && !tv && key === 'm') setVolume(media.volume, !media.muted)
+      else if (!isNative && !tv && key === ' ' && !e.target.closest?.('button')) togglePlay()
+      else if (!isNative && !tv && key === 'arrowright') skip(10)
+      else if (!isNative && !tv && key === 'arrowleft') skip(-10)
       else return
       e.preventDefault()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [setView, hasTracks])
+  }, [setView, hasTracks, media.volume, media.muted, media.position, media.duration])
 
   const mode = FIT_MODES.find((m) => m.id === view.mode) || FIT_MODES[0]
 
@@ -462,11 +504,51 @@ export default function Player({ url, fallbackUrl, isLive = false, startAt = 0, 
     }
   }, [menuOpen])
 
-  const togglePlay = () => (exo.current.playing ? NativePlayer.pause() : NativePlayer.play())
+  const togglePlay = () => {
+    if (isNative) return exo.current.playing ? NativePlayer.pause() : NativePlayer.play()
+    const video = videoRef.current
+    if (video) video.paused ? video.play().catch(() => {}) : video.pause()
+  }
+  const seekTo = (position) => {
+    if (isNative) {
+      exo.current.position = position
+      NativePlayer.seekTo({ position })
+      setMedia((m) => ({ ...m, position }))
+    } else if (videoRef.current) {
+      videoRef.current.currentTime = position
+      // The slider is controlled: show the new spot at once, not at the next timeupdate.
+      setMedia((m) => ({ ...m, position }))
+    }
+  }
+  const skip = (delta) => {
+    if (isLive || media.duration <= 0) return
+    seekTo(Math.min(media.duration, Math.max(0, media.position + delta)))
+  }
+  const setVolume = (volume, muted) => {
+    const video = videoRef.current
+    if (!video) return
+    video.volume = volume
+    video.muted = muted
+    try {
+      localStorage.setItem(VOLUME_KEY, JSON.stringify({ volume, muted }))
+    } catch {
+      // keep the in-memory value
+    }
+  }
+  // Click toggles play/pause; a double click (fullscreen) must not toggle twice.
+  const clickTimer = useRef(null)
+  const onPictureClick = () => {
+    clearTimeout(clickTimer.current)
+    clickTimer.current = setTimeout(togglePlay, 220)
+  }
+  const onPictureDoubleClick = () => {
+    clearTimeout(clickTimer.current)
+    fullscreen()
+  }
 
   return (
     <div
-      className={`player${nativeFs ? ' native-fs' : ''}${idle ? ' idle' : ''}${menuOpen ? ' menu-open' : ''}`}
+      className={`player${nativeFs ? ' native-fs' : ''}${hideControls ? ' idle' : ''}${menuOpen ? ' menu-open' : ''}${barFocus ? ' bar-focus' : ''}`}
       ref={containerRef}
       tabIndex={tv ? 0 : undefined}
       onPointerMove={wake}
@@ -481,30 +563,81 @@ export default function Player({ url, fallbackUrl, isLive = false, startAt = 0, 
       ) : (
         <video
           ref={videoRef}
-          controls={!tv}
-          controlsList="nofullscreen"
           playsInline
           style={{ objectFit: mode.objectFit, transform: view.zoom !== 1 ? `scale(${view.zoom})` : undefined }}
-          onDoubleClick={fullscreen}
+          onClick={tv ? undefined : onPictureClick}
+          onDoubleClick={onPictureDoubleClick}
         />
       )}
-      {isNative && !tv && <ExoBar exo={exo} isLive={isLive} onToggle={togglePlay} />}
-      <div className="player-toolbar">
-        <button title="Ajuste à tela (A)" onClick={() => setView((v) => ({ ...v, mode: nextMode(v.mode) }))}>
-          ⤢ {mode.label}
-        </button>
-        <button title="Diminuir zoom (-)" className="zoom-btn" onClick={() => setView((v) => ({ ...v, zoom: clampZoom(v.zoom - ZOOM_STEP) }))}>−</button>
-        <button title="Zoom normal (0)" className="zoom-btn zoom-value" onClick={() => setView((v) => ({ ...v, zoom: 1 }))}>
-          {Math.round(view.zoom * 100)}%
-        </button>
-        <button title="Aumentar zoom (+)" className="zoom-btn" onClick={() => setView((v) => ({ ...v, zoom: clampZoom(v.zoom + ZOOM_STEP) }))}>+</button>
-        {canPip && !tv && (
-          <button title="Picture-in-picture (P)" className={pip ? 'on' : ''} onClick={togglePip}>⧉</button>
-        )}
-        {hasTracks && (
-          <button title="Áudio e legendas (C)" onClick={() => setMenuOpen((o) => !o)}>CC</button>
-        )}
-        <button title="Tela cheia (F)" onClick={fullscreen}>⛶</button>
+      <div
+        className="control-bar"
+        onKeyDown={(e) => {
+          if (tv && e.key === 'ArrowUp') {
+            e.preventDefault()
+            setBarFocus(false)
+            containerRef.current?.focus()
+          }
+        }}
+        onBlur={(e) => {
+          if (barFocus && !e.currentTarget.contains(e.relatedTarget)) setBarFocus(false)
+        }}
+      >
+        {!isLive && media.duration > 0 &&
+          (tv ? (
+            <div className="progress"><i style={{ width: `${(media.position / media.duration) * 100}%` }} /></div>
+          ) : (
+            <input
+              className="seek"
+              type="range"
+              min="0"
+              max={media.duration}
+              step="1"
+              value={Math.min(media.position, media.duration)}
+              aria-label="Progresso"
+              onChange={(e) => seekTo(Number(e.target.value))}
+            />
+          ))}
+        <div className="control-row">
+          {!tv && (
+            <button className="ctl-play" title="Reproduzir / pausar (Espaço)" onClick={togglePlay}>{media.playing ? '❚❚' : '▶︎'}</button>
+          )}
+          <span className="time">
+            {isLive ? <b className="live">AO VIVO</b> : media.duration > 0 ? `${formatTime(media.position)} / ${formatTime(media.duration)}` : formatTime(media.position)}
+          </span>
+          {!isNative && !tv && (
+            <span className="volume">
+              <button title="Mudo (M)" onClick={() => setVolume(media.volume, !media.muted)}>
+                {media.muted || media.volume === 0 ? '🔇' : '🔊'}
+              </button>
+              <input
+                className="vol"
+                type="range"
+                min="0"
+                max="1"
+                step="0.05"
+                value={media.muted ? 0 : media.volume}
+                aria-label="Volume"
+                onChange={(e) => setVolume(Number(e.target.value), false)}
+              />
+            </span>
+          )}
+          <i className="sep" />
+          <button title="Ajuste à tela (A)" onClick={() => setView((v) => ({ ...v, mode: nextMode(v.mode) }))}>
+            ⤢<span className="fit-text"> {mode.label}</span>
+          </button>
+          <button title="Diminuir zoom (-)" className="zoom-btn" onClick={() => setView((v) => ({ ...v, zoom: clampZoom(v.zoom - ZOOM_STEP) }))}>−</button>
+          <button title="Zoom normal (0)" className="zoom-btn zoom-value" onClick={() => setView((v) => ({ ...v, zoom: 1 }))}>
+            {Math.round(view.zoom * 100)}%
+          </button>
+          <button title="Aumentar zoom (+)" className="zoom-btn" onClick={() => setView((v) => ({ ...v, zoom: clampZoom(v.zoom + ZOOM_STEP) }))}>+</button>
+          {canPip && !tv && (
+            <button title="Picture-in-picture (P)" className={pip ? 'on' : ''} onClick={togglePip}>⧉</button>
+          )}
+          {hasTracks && (
+            <button title="Áudio e legendas (C)" onClick={() => setMenuOpen((o) => !o)}>CC</button>
+          )}
+          <button title="Tela cheia (F)" onClick={fullscreen}>⛶</button>
+        </div>
       </div>
       {menuOpen && (
         <div className="track-menu">
@@ -544,6 +677,15 @@ const FIT_MODES = [
 ]
 const ZOOM_STEP = 0.05
 const IDLE_MS = 3000
+const VOLUME_KEY = 'player:volume'
+
+const formatTime = (seconds) => {
+  const total = Math.max(0, Math.floor(seconds || 0))
+  const h = Math.floor(total / 3600)
+  const m = Math.floor((total % 3600) / 60)
+  const sec = String(total % 60).padStart(2, '0')
+  return h ? `${h}:${String(m).padStart(2, '0')}:${sec}` : `${m}:${sec}`
+}
 const VIEW_KEY = 'player:view'
 
 const nextMode = (id) => FIT_MODES[(FIT_MODES.findIndex((m) => m.id === id) + 1) % FIT_MODES.length].id
@@ -584,7 +726,7 @@ export function PlayerModal({ title, onClose, ...props }) {
     // Android back button closes the modal (the inner player's fullscreen handler runs first).
     const onBack = (e) => {
       // On a TV, back leaves the player in one press; on a phone it first leaves fullscreen.
-      if (document.querySelector('.player.menu-open')) return
+      if (document.querySelector('.player.menu-open, .player.bar-focus')) return
       if (!isTvMode() && document.querySelector('.player.native-fs')) return
       e.preventDefault()
       onClose()
@@ -604,35 +746,6 @@ export function PlayerModal({ title, onClose, ...props }) {
         <h2>{title}</h2>
       </header>
       <Player {...props} startFullscreen={isTvMode()} />
-    </div>
-  )
-}
-
-// Touch controls for the ExoPlayer picture: play/pause and, for movies, a seek bar.
-function ExoBar({ exo, isLive, onToggle }) {
-  const [t, setT] = useState(exo.current)
-  useEffect(() => {
-    const timer = setInterval(() => setT({ ...exo.current }), 500)
-    return () => clearInterval(timer)
-  }, [exo])
-  return (
-    <div className="exo-bar">
-      <button onClick={onToggle}>{t.playing ? '⏸' : '▶'}</button>
-      {!isLive && t.duration > 0 && (
-        <input
-          type="range"
-          min="0"
-          max={t.duration}
-          step="1"
-          value={t.position}
-          onChange={(e) => {
-            const position = Number(e.target.value)
-            exo.current.position = position
-            setT((v) => ({ ...v, position }))
-            NativePlayer.seekTo({ position })
-          }}
-        />
-      )}
     </div>
   )
 }
