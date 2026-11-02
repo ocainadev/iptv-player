@@ -5,7 +5,7 @@ const { autoUpdater } = electronUpdater
 
 // "owner/repo" of the GitHub repository that hosts the releases.
 // Keep in sync with `publish` in electron-builder.yml.
-const GITHUB_REPO = 'OWNER/REPO'
+const GITHUB_REPO = 'ocainadev/iptv-player'
 
 const [OWNER, REPO] = GITHUB_REPO.split('/')
 const API_URL = `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`

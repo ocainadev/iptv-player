@@ -26,5 +26,5 @@ nsis:
 # Where the installed app (electron-updater) looks for new versions. Keep in sync with src/main/updater.js.
 publish:
   provider: github
-  owner: OWNER
-  repo: REPO
+  owner: ocainadev
+  repo: iptv-player
