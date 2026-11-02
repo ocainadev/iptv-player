@@ -1,0 +1,35 @@
+{
+  "name": "iptv-player",
+  "productName": "IPTV Player",
+  "version": "0.1.0",
+  "description": "Personal IPTV player for Xtream Codes and M3U playlists",
+  "main": "./out/main/index.js",
+  "private": true,
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "start": "electron-vite preview",
+    "dist:mac": "electron-vite build && electron-builder --mac",
+    "dist:win": "electron-vite build && electron-builder --win",
+    "dist": "electron-vite build && electron-builder --mac --win"
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.11",
+    "hls.js": "^1.7.4",
+    "mpegts.js": "^1.8.2",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "react-router-dom": "^7.18.5"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^6.1.2",
+    "electron": "^45.2.1",
+    "electron-builder": "^26.18.0",
+    "electron-vite": "^6.0.0",
+    "vite": "^8.3.5"
+  },
+  "allowScripts": {
+    "electron-winstaller": false,
+    "electron@45.2.1": true
+  }
+}
