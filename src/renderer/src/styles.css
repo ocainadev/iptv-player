@@ -226,11 +226,14 @@ input:focus { border-color: var(--accent); }
 .player video { width: 100%; height: 100%; display: block; background: #000; transition: transform .15s; }
 .player:fullscreen { border-radius: 0; aspect-ratio: auto; width: 100vw; height: 100vh; }
 .player-toolbar {
-  position: absolute; top: 10px; right: 10px; z-index: 2;
+  position: absolute; bottom: 56px; left: 50%; transform: translateX(-50%); z-index: 2;
   display: flex; gap: 2px; padding: 4px; border-radius: 8px; background: #000b;
   opacity: 0; transition: opacity .2s;
 }
-.player:hover .player-toolbar, .player-toolbar:focus-within { opacity: 1; }
+.player-toolbar, .exo-bar { opacity: 0; pointer-events: none; transition: opacity .25s; }
+.player:not(.idle) .player-toolbar, .player:not(.idle) .exo-bar,
+.player-toolbar:focus-within, .exo-bar:focus-within { opacity: 1; pointer-events: auto; }
+.player.idle:not(:focus-within) { cursor: none; }
 .player-toolbar button { padding: 6px 10px; border-radius: 6px; font-size: 13px; color: #fff; white-space: nowrap; }
 .player-toolbar button:hover { background: #ffffff22; }
 .player-toolbar .zoom-value { min-width: 52px; text-align: center; font-variant-numeric: tabular-nums; }
@@ -270,7 +273,6 @@ body { padding: var(--safe-top) var(--safe-right) 0 var(--safe-left); }
 
 /* Touch screens have no hover: keep the player toolbar visible, with fewer buttons. */
 @media (hover: none) {
-  .player-toolbar { opacity: .9; }
   .player-toolbar .zoom-btn { display: none; }
   .btn, .tabs button, .category-list button { min-height: 40px; }
   .channel { padding: 10px 8px; }
@@ -353,7 +355,7 @@ html.tv body { padding: 18px 36px; font-size: 18px; }
 /* Android ExoPlayer: the picture is a native view behind the WebView, so everything
    above the slot must be see-through. */
 .exo-slot { position: absolute; inset: 0; }
-.exo-clear { background: transparent !important; }
+.exo-active:has(.exo-slot), .exo-active *:has(.exo-slot) { background: transparent !important; }
 .exo-bar {
   position: absolute; left: 0; right: 0; bottom: 0; z-index: 2;
   display: flex; align-items: center; gap: 10px; padding: 8px 12px;
@@ -362,4 +364,20 @@ html.tv body { padding: 18px 36px; font-size: 18px; }
 .exo-bar button { color: #fff; font-size: 20px; padding: 4px 10px; }
 .exo-bar input[type=range] { flex: 1; accent-color: var(--accent); }
 .exo-hide { visibility: hidden !important; }
-.exo-clear::before, .exo-clear::after { background: transparent !important; }
+.exo-active *:has(.exo-slot)::before, .exo-active *:has(.exo-slot)::after { background: transparent !important; }
+
+/* Audio and subtitle menu */
+.track-menu {
+  position: absolute; bottom: 112px; left: 50%; transform: translateX(-50%); z-index: 3; min-width: 220px; max-height: 60%;
+  overflow-y: auto; padding: 8px; border-radius: 10px; background: #000d; color: #fff;
+}
+.track-menu h4 { margin: 8px 8px 4px; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: #9aa0ad; }
+.track-menu button { display: block; width: 100%; padding: 8px 10px; border-radius: 6px; text-align: left; color: #fff; font-size: 14px; }
+.track-menu button:hover { background: #ffffff22; }
+.track-menu button.on::before { content: '✓ '; color: var(--accent-2); }
+.tv .track-menu button { font-size: 20px; padding: 12px 14px; }
+
+/* TV has no bar under the picture: controls sit closer to the bottom edge. */
+.tv .player-toolbar { bottom: 36px; }
+.tv .track-menu { bottom: 100px; }
+.player-toolbar button.on { background: #ffffff33; }

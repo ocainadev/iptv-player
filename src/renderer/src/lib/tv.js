@@ -114,7 +114,7 @@ function onKeyDown(e) {
   const direction = DIRECTIONS[e.key]
   if (!direction || e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey) return
   // The fullscreen player handles its own keys (seek, pause).
-  if (document.querySelector('.player.native-fs')) return
+  if (document.querySelector('.player.native-fs:not(.menu-open)')) return
 
   const active = document.activeElement
   // In a text field left/right move the caret; up/down leave the field.

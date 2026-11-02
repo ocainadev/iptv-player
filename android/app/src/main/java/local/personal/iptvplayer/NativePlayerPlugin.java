@@ -10,6 +10,12 @@ import androidx.media3.common.AudioAttributes;
 import androidx.media3.common.C;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.PlaybackException;
+import androidx.media3.common.Format;
+import androidx.media3.common.TrackGroup;
+import androidx.media3.common.TrackSelectionOverride;
+import androidx.media3.common.Tracks;
+import com.getcapacitor.JSArray;
+import java.util.Locale;
 import androidx.media3.common.Player;
 import androidx.media3.datasource.DefaultHttpDataSource;
 import androidx.media3.exoplayer.DefaultRenderersFactory;
@@ -60,6 +66,11 @@ public class NativePlayerPlugin extends Plugin {
         }
 
         @Override
+        public void onTracksChanged(Tracks tracks) {
+            notifyListeners("tracks", describeTracks(tracks));
+        }
+
+        @Override
         public void onPlayerError(PlaybackException error) {
             JSObject data = new JSObject();
             data.put("message", error.getErrorCodeName());
@@ -68,6 +79,58 @@ public class NativePlayerPlugin extends Plugin {
             notifyListeners("error", data);
         }
     };
+
+    // Audio and subtitle tracks the stream offers. An id is "<group>:<track>" into
+    // Tracks.getGroups(), which selectTrack() resolves again.
+    private JSObject describeTracks(Tracks tracks) {
+        JSArray audio = new JSArray();
+        JSArray text = new JSArray();
+        for (int g = 0; g < tracks.getGroups().size(); g++) {
+            Tracks.Group group = tracks.getGroups().get(g);
+            int type = group.getType();
+            if (type != C.TRACK_TYPE_AUDIO && type != C.TRACK_TYPE_TEXT) continue;
+            for (int t = 0; t < group.length; t++) {
+                if (!group.isTrackSupported(t)) continue;
+                Format format = group.getTrackFormat(t);
+                String label = format.label;
+                if (label == null && format.language != null && !"und".equals(format.language)) {
+                    label = new Locale(format.language).getDisplayLanguage(new Locale("pt", "BR"));
+                }
+                JSObject item = new JSObject();
+                item.put("id", g + ":" + t);
+                item.put("label", label);
+                item.put("selected", group.isTrackSelected(t));
+                (type == C.TRACK_TYPE_AUDIO ? audio : text).put(item);
+            }
+        }
+        JSObject data = new JSObject();
+        data.put("audio", audio);
+        data.put("text", text);
+        return data;
+    }
+
+    // kind: "audio" | "text"; id: from describeTracks, empty = turn subtitles off.
+    @PluginMethod
+    public void selectTrack(PluginCall call) {
+        String kind = call.getString("kind", "");
+        String id = call.getString("id", "");
+        ui(() -> {
+            if (player == null) return;
+            int type = "audio".equals(kind) ? C.TRACK_TYPE_AUDIO : C.TRACK_TYPE_TEXT;
+            androidx.media3.common.TrackSelectionParameters.Builder params = player.getTrackSelectionParameters().buildUpon();
+            if (id.isEmpty()) {
+                params.setTrackTypeDisabled(type, true);
+            } else {
+                String[] parts = id.split(":");
+                Tracks.Group group = player.getCurrentTracks().getGroups().get(Integer.parseInt(parts[0]));
+                TrackGroup mediaGroup = group.getMediaTrackGroup();
+                params.setTrackTypeDisabled(type, false)
+                    .setOverrideForType(new TrackSelectionOverride(mediaGroup, Integer.parseInt(parts[1])));
+            }
+            player.setTrackSelectionParameters(params.build());
+        });
+        call.resolve();
+    }
 
     private void ui(Runnable action) {
         getActivity().runOnUiThread(action);

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import Hls from 'hls.js'
 import mpegts from 'mpegts.js'
 import { enterNativeFullscreen, exitNativeFullscreen, isNative } from '../lib/native'
@@ -18,12 +18,58 @@ function engineFor(url, isLive) {
   return 'native'
 }
 
+// Picture-in-picture outlives the player screen: when the player unmounts while its
+// video is floating, the <video> and its engine move to a hidden host and keep playing,
+// so the user can browse the app. The session ends when the floating window closes
+// or another video starts.
+let pipSession = null
+
+function endPipSession() {
+  const session = pipSession
+  if (!session) return
+  pipSession = null
+  session.teardown()
+  if (document.pictureInPictureElement === session.video) document.exitPictureInPicture().catch(() => {})
+  session.host.remove()
+}
+
 const UNSUPPORTED_HINT =
   'Formato ou codec não suportado pelo Chromium (comum em MKV, HEVC/H.265 e áudio AC3/DTS).'
 
 export default function Player({ url, fallbackUrl, isLive = false, startAt = 0, onProgress, autoPlay = true, startFullscreen = false }) {
   const videoRef = useRef(null)
   const slotRef = useRef(null)
+  // Audio and subtitle tracks of the current stream, and how to switch them.
+  const [tracks, setTracks] = useState({ audio: [], text: [] })
+  const [menuOpen, setMenuOpen] = useState(false)
+  const hasTracks = tracks.audio.length > 1 || tracks.text.length > 0
+  // Picture-in-picture: the browser's own floating video window (desktop only).
+  const canPip = !isNative && !!document.pictureInPictureEnabled
+  const [pip, setPip] = useState(false)
+  const togglePip = () => {
+    const video = videoRef.current
+    if (!video) return
+    if (document.pictureInPictureElement) document.exitPictureInPicture().catch(() => {})
+    else video.requestPictureInPicture().catch(() => {})
+  }
+  const trackApi = useRef({ select: () => {} })
+  const engineRef = useRef(null) // { teardown } of the running <video> engine
+  const handedOff = useRef(false)
+  // Runs on unmount, before React removes the player's DOM: a floating video must not go with it.
+  useLayoutEffect(
+    () => () => {
+      const video = videoRef.current
+      if (isNative || !video || !engineRef.current || document.pictureInPictureElement !== video) return
+      handedOff.current = true
+      const host = document.createElement('div')
+      host.style.cssText = 'position:fixed;left:-10px;top:0;width:2px;height:2px;opacity:0;pointer-events:none'
+      document.body.appendChild(host)
+      host.appendChild(video)
+      pipSession = { video, host, teardown: engineRef.current.teardown }
+      video.addEventListener('leavepictureinpicture', endPipSession, { once: true })
+    },
+    []
+  )
   // Android: ExoPlayer state reported by the plugin (the <video> element is not used).
   const exo = useRef({ position: 0, duration: -1, playing: false })
   const [activeUrl, setActiveUrl] = useState(url)
@@ -49,9 +95,11 @@ export default function Player({ url, fallbackUrl, isLive = false, startAt = 0, 
         setError(message)
       }
     }
+    trackApi.current = { select: (kind, id) => NativePlayer.selectTrack({ kind, id }) }
     const start = () => NativePlayer.load({ url: activeUrl, live: isLive, startAt, autoPlay }).catch(() => fail('Não foi possível iniciar o player.'))
     const listen = async () => {
       handles.push(
+        await NativePlayer.addListener('tracks', setTracks),
         await NativePlayer.addListener('state', ({ state }) => setLoading(state === 'buffering')),
         await NativePlayer.addListener('time', (t) => {
           exo.current = t
@@ -78,6 +126,7 @@ export default function Player({ url, fallbackUrl, isLive = false, startAt = 0, 
       const { position, duration } = exo.current
       if (onProgress && !isLive && position > 0) onProgress(position, duration)
       handles.forEach((h) => h.remove())
+      setTracks({ audio: [], text: [] })
       NativePlayer.stop()
       document.documentElement.classList.remove('exo-active')
       exo.current = { position: 0, duration: -1, playing: false }
@@ -89,6 +138,7 @@ export default function Player({ url, fallbackUrl, isLive = false, startAt = 0, 
   useEffect(() => {
     const video = videoRef.current
     if (isNative || !video || !activeUrl) return
+    endPipSession()
     setLoading(true)
     setError('')
 
@@ -135,6 +185,50 @@ export default function Player({ url, fallbackUrl, isLive = false, startAt = 0, 
       video.src = activeUrl
     }
 
+    // Tracks: hls.js exposes its own lists; a plain <video> exposes textTracks
+    // (and audioTracks where the browser implements them).
+    const subs = () => [...video.textTracks].filter((t) => t.kind === 'subtitles' || t.kind === 'captions')
+    const readTracks = () => {
+      const audio = []
+      const text = []
+      if (hls) {
+        hls.audioTracks.forEach((t, i) => audio.push({ id: String(i), label: t.name || t.lang || `Áudio ${i + 1}`, selected: hls.audioTrack === i }))
+        hls.subtitleTracks.forEach((t, i) => text.push({ id: String(i), label: t.name || t.lang || `Legenda ${i + 1}`, selected: hls.subtitleTrack === i }))
+      } else {
+        subs().forEach((t, i) => text.push({ id: String(i), label: t.label || t.language || `Legenda ${i + 1}`, selected: t.mode === 'showing' }))
+        if (video.audioTracks) {
+          ;[...video.audioTracks].forEach((t, i) => audio.push({ id: String(i), label: t.label || t.language || `Áudio ${i + 1}`, selected: t.enabled }))
+        }
+      }
+      setTracks({ audio, text })
+    }
+    trackApi.current = {
+      select: (kind, id) => {
+        if (hls) {
+          if (kind === 'audio') hls.audioTrack = Number(id)
+          else hls.subtitleTrack = id === '' ? -1 : Number(id)
+        } else if (kind === 'audio') {
+          ;[...video.audioTracks].forEach((t, i) => (t.enabled = String(i) === id))
+        } else {
+          subs().forEach((t, i) => (t.mode = String(i) === id ? 'showing' : 'disabled'))
+        }
+        readTracks()
+      }
+    }
+    if (hls) {
+      hls.subtitleDisplay = true
+      for (const ev of [Hls.Events.MANIFEST_PARSED, Hls.Events.AUDIO_TRACKS_UPDATED, Hls.Events.SUBTITLE_TRACKS_UPDATED, Hls.Events.AUDIO_TRACK_SWITCHED, Hls.Events.SUBTITLE_TRACK_SWITCH]) {
+        hls.on(ev, readTracks)
+      }
+    }
+    video.textTracks.addEventListener('addtrack', readTracks)
+    video.textTracks.addEventListener('change', readTracks)
+    video.audioTracks?.addEventListener?.('addtrack', readTracks)
+    const onEnterPip = () => setPip(true)
+    const onLeavePip = () => setPip(false)
+    video.addEventListener('enterpictureinpicture', onEnterPip)
+    video.addEventListener('leavepictureinpicture', onLeavePip)
+
     const onLoaded = () => {
       if (startAt > 0 && !isLive) video.currentTime = startAt
       if (autoPlay) video.play().catch(() => {})
@@ -160,13 +254,7 @@ export default function Player({ url, fallbackUrl, isLive = false, startAt = 0, 
     video.addEventListener('error', onVideoError)
     video.addEventListener('timeupdate', onTime)
 
-    return () => {
-      if (onProgress && !isLive && video.currentTime > 0) onProgress(video.currentTime, video.duration)
-      video.removeEventListener('loadedmetadata', onLoaded)
-      video.removeEventListener('playing', onPlaying)
-      video.removeEventListener('waiting', onWaiting)
-      video.removeEventListener('error', onVideoError)
-      video.removeEventListener('timeupdate', onTime)
+    const teardown = () => {
       clearTimeout(retryTimer)
       hls?.destroy()
       hls = null
@@ -179,6 +267,27 @@ export default function Player({ url, fallbackUrl, isLive = false, startAt = 0, 
       video.removeAttribute('src')
       video.load()
     }
+    engineRef.current = { teardown }
+
+    return () => {
+      if (onProgress && !isLive && video.currentTime > 0) onProgress(video.currentTime, video.duration)
+      // The player screen closed while floating: the PiP session owns the stream now.
+      if (handedOff.current) return
+      engineRef.current = null
+      video.removeEventListener('enterpictureinpicture', onEnterPip)
+      video.removeEventListener('leavepictureinpicture', onLeavePip)
+      if (document.pictureInPictureElement === video) document.exitPictureInPicture().catch(() => {})
+      video.textTracks.removeEventListener('addtrack', readTracks)
+      video.textTracks.removeEventListener('change', readTracks)
+      video.audioTracks?.removeEventListener?.('addtrack', readTracks)
+      setTracks({ audio: [], text: [] })
+      video.removeEventListener('loadedmetadata', onLoaded)
+      video.removeEventListener('playing', onPlaying)
+      video.removeEventListener('waiting', onWaiting)
+      video.removeEventListener('error', onVideoError)
+      video.removeEventListener('timeupdate', onTime)
+      teardown()
+    }
     // onProgress is intentionally left out: a new callback identity must not restart playback.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeUrl, isLive, startAt, autoPlay])
@@ -190,6 +299,18 @@ export default function Player({ url, fallbackUrl, isLive = false, startAt = 0, 
   const [nativeFs, setNativeFs] = useState(isNative && startFullscreen)
   const tv = isTvMode()
   const [hud, setHud] = useState(null)
+  // Toolbar and touch controls fade out after a few seconds without interaction.
+  const [idle, setIdle] = useState(false)
+  const idleTimer = useRef(null)
+  const wake = () => {
+    setIdle(false)
+    clearTimeout(idleTimer.current)
+    idleTimer.current = setTimeout(() => setIdle(true), IDLE_MS)
+  }
+  useEffect(() => {
+    wake()
+    return () => clearTimeout(idleTimer.current)
+  }, [])
   const hudTimer = useRef(null)
   const fullscreen = () => (isNative ? setNativeFs((f) => !f) : toggleFullscreen(containerRef.current))
 
@@ -199,6 +320,8 @@ export default function Player({ url, fallbackUrl, isLive = false, startAt = 0, 
     // Remote-control keys go to the container, so it needs the focus.
     if (tv) containerRef.current?.focus()
     const onBack = (e) => {
+      // An open track menu takes the back press (its own handler closes it).
+      if (containerRef.current?.classList.contains('menu-open')) return
       e.preventDefault()
       setNativeFs(false)
     }
@@ -248,7 +371,8 @@ export default function Player({ url, fallbackUrl, isLive = false, startAt = 0, 
     if (key === 'Enter' || key === ' ' || key === 'MediaPlayPause') {
       if (!nativeFs && key !== 'MediaPlayPause') fullscreen()
       else toggle()
-    } else if (nativeFs && (key === 'ArrowRight' || key === 'MediaFastForward')) seek(10)
+    } else if (hasTracks && (key === 'ArrowDown' || key === 'ArrowUp' || key === 'ContextMenu')) setMenuOpen(true)
+    else if (nativeFs && (key === 'ArrowRight' || key === 'MediaFastForward')) seek(10)
     else if (nativeFs && (key === 'ArrowLeft' || key === 'MediaRewind')) seek(-10)
     else return
     e.preventDefault()
@@ -265,25 +389,22 @@ export default function Player({ url, fallbackUrl, isLive = false, startAt = 0, 
       else if (key === '-') setView((v) => ({ ...v, zoom: clampZoom(v.zoom - ZOOM_STEP) }))
       else if (key === '0') setView((v) => ({ ...v, zoom: 1 }))
       else if (key === 'f') fullscreen()
+      else if (key === 'c' && hasTracks) setMenuOpen((o) => !o)
+      else if (key === 'p' && canPip && !tv) togglePip()
       else return
       e.preventDefault()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [setView])
+  }, [setView, hasTracks])
 
   const mode = FIT_MODES.find((m) => m.id === view.mode) || FIT_MODES[0]
 
   // ExoPlayer is a native view behind the page: keep it on the slot's rectangle.
-  // The slot's ancestors are made transparent so the picture shows through.
+  // The slot's ancestors are made transparent (see .exo-active in styles.css) so the picture shows through.
   useEffect(() => {
     if (!isNative) return
     const slot = slotRef.current
-    const chain = []
-    for (let el = slot; el; el = el.parentElement) {
-      el.classList.add('exo-clear')
-      chain.push(el)
-    }
     // The slot is see-through, so whatever is drawn behind it would show over the
     // picture. In a modal or fullscreen layer, hide everything outside that layer.
     const root = nativeFs ? containerRef.current : slot.closest('.player-modal')
@@ -313,19 +434,47 @@ export default function Player({ url, fallbackUrl, isLive = false, startAt = 0, 
     return () => {
       clearInterval(timer)
       window.removeEventListener('resize', sync)
-      chain.forEach((el) => el.classList.remove('exo-clear'))
       hidden.forEach((el) => el.classList.remove('exo-hide'))
     }
   }, [mode.id, view.zoom, nativeFs])
+
+  const pickTrack = (kind, id) => {
+    trackApi.current.select(kind, id)
+    setMenuOpen(false)
+    containerRef.current?.focus()
+  }
+  useEffect(() => {
+    if (!menuOpen) return
+    setIdle(false)
+    clearTimeout(idleTimer.current)
+    // Back closes the menu first, before the player or the modal react to it.
+    const onBack = (e) => {
+      e.preventDefault()
+      e.stopImmediatePropagation()
+      setMenuOpen(false)
+      containerRef.current?.focus()
+    }
+    window.addEventListener('app:back', onBack, true)
+    containerRef.current?.querySelector('.track-menu button')?.focus()
+    return () => {
+      window.removeEventListener('app:back', onBack, true)
+      wake()
+    }
+  }, [menuOpen])
 
   const togglePlay = () => (exo.current.playing ? NativePlayer.pause() : NativePlayer.play())
 
   return (
     <div
-      className={`player${nativeFs ? ' native-fs' : ''}`}
+      className={`player${nativeFs ? ' native-fs' : ''}${idle ? ' idle' : ''}${menuOpen ? ' menu-open' : ''}`}
       ref={containerRef}
       tabIndex={tv ? 0 : undefined}
-      onKeyDown={onTvKey}
+      onPointerMove={wake}
+      onPointerDown={wake}
+      onKeyDown={(e) => {
+        wake()
+        onTvKey(e)
+      }}
     >
       {isNative ? (
         <div ref={slotRef} className="exo-slot" onDoubleClick={fullscreen} />
@@ -349,8 +498,31 @@ export default function Player({ url, fallbackUrl, isLive = false, startAt = 0, 
           {Math.round(view.zoom * 100)}%
         </button>
         <button title="Aumentar zoom (+)" className="zoom-btn" onClick={() => setView((v) => ({ ...v, zoom: clampZoom(v.zoom + ZOOM_STEP) }))}>+</button>
+        {canPip && !tv && (
+          <button title="Picture-in-picture (P)" className={pip ? 'on' : ''} onClick={togglePip}>⧉</button>
+        )}
+        {hasTracks && (
+          <button title="Áudio e legendas (C)" onClick={() => setMenuOpen((o) => !o)}>CC</button>
+        )}
         <button title="Tela cheia (F)" onClick={fullscreen}>⛶</button>
       </div>
+      {menuOpen && (
+        <div className="track-menu">
+          {tracks.audio.length > 1 && (
+            <>
+              <h4>Áudio</h4>
+              {tracks.audio.map((t) => (
+                <button key={t.id} className={t.selected ? 'on' : ''} onClick={() => pickTrack('audio', t.id)}>{t.label}</button>
+              ))}
+            </>
+          )}
+          <h4>Legendas</h4>
+          <button className={tracks.text.some((t) => t.selected) ? '' : 'on'} onClick={() => pickTrack('text', '')}>Desativadas</button>
+          {tracks.text.map((t) => (
+            <button key={t.id} className={t.selected ? 'on' : ''} onClick={() => pickTrack('text', t.id)}>{t.label}</button>
+          ))}
+        </div>
+      )}
       {hud && <div className="player-hud">{hud.text}</div>}
       {loading && !error && <div className="player-overlay"><div className="spinner" /></div>}
       {error && (
@@ -371,6 +543,7 @@ const FIT_MODES = [
   { id: 'fill', label: 'Esticar', objectFit: 'fill' }
 ]
 const ZOOM_STEP = 0.05
+const IDLE_MS = 3000
 const VIEW_KEY = 'player:view'
 
 const nextMode = (id) => FIT_MODES[(FIT_MODES.findIndex((m) => m.id === id) + 1) % FIT_MODES.length].id
@@ -411,6 +584,7 @@ export function PlayerModal({ title, onClose, ...props }) {
     // Android back button closes the modal (the inner player's fullscreen handler runs first).
     const onBack = (e) => {
       // On a TV, back leaves the player in one press; on a phone it first leaves fullscreen.
+      if (document.querySelector('.player.menu-open')) return
       if (!isTvMode() && document.querySelector('.player.native-fs')) return
       e.preventDefault()
       onClose()

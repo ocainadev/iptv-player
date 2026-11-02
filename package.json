@@ -1,7 +1,7 @@
 {
   "name": "iptv-player",
   "productName": "IPTV Player",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Personal IPTV player for Xtream Codes and M3U playlists",
   "main": "./out/main/index.js",
   "private": true,
