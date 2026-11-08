@@ -68,6 +68,13 @@ The version comes from `package.json`. Signing uses `android/keystore.properties
 
 Without `keystore.properties` the release build is unsigned. To install on a TV, use `adb install` or send the APK to the device and open it.
 
+**Updates.** The app checks GitHub for a newer release a few seconds after it starts and every 6 hours, and starts downloading it right away. A notice at the bottom of the screen then offers to install:
+
+- **Windows (installer):** downloads in the background and installs on restart (or by itself when the app is closed).
+- **macOS:** downloads the `.dmg` and swaps the app in place, then reopens it. If the app's folder is not writable, it opens the `.dmg` instead.
+- **Android / Android TV:** downloads the APK and opens the system installer. Android always asks for a confirmation, and the first time the user must allow "install unknown apps" for IPTV Player.
+- **Windows portable:** only shows a link to the download.
+
 To release: bump `version` in `package.json`, run the desktop builds and `npm run android:apk`, then attach the `.apk` to the GitHub release (tag = version). The app's "Verificar atualizações" button reads the latest release and opens the `.apk` download.
 
 ## Limitations

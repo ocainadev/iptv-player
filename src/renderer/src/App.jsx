@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { HashRouter, Navigate, Route, Routes } from 'react-router-dom'
 import Profiles from './pages/Profiles'
 import AddProfile from './pages/AddProfile'
@@ -8,11 +9,15 @@ import Catalog from './pages/Catalog'
 import MovieDetail from './pages/MovieDetail'
 import SeriesDetail from './pages/SeriesDetail'
 import Search from './pages/Search'
+import UpdateBanner from './components/UpdateBanner'
+import { startAutoCheck } from './lib/updates'
 
 // HashRouter because production loads index.html from file://.
 export default function App() {
+  useEffect(() => startAutoCheck(), [])
   return (
     <HashRouter>
+      <UpdateBanner />
       <Routes>
         <Route path="/" element={<Profiles />} />
         <Route path="/add" element={<AddProfile />} />

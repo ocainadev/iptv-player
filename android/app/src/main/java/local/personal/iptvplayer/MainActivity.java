@@ -10,6 +10,7 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(TvModePlugin.class);
         registerPlugin(NativePlayerPlugin.class);
         registerPlugin(ExternalLinkPlugin.class);
+        registerPlugin(ApkUpdatePlugin.class);
         super.onCreate(savedInstanceState);
     }
 }

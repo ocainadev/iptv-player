@@ -1,5 +1,11 @@
 import { app, BrowserWindow, ipcMain, shell } from 'electron'
 import electronUpdater from 'electron-updater'
+import { spawn } from 'node:child_process'
+import { createWriteStream, accessSync, constants, mkdirSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { dirname, join } from 'node:path'
+import { Readable } from 'node:stream'
+import { pipeline } from 'node:stream/promises'
 
 const { autoUpdater } = electronUpdater
 
@@ -8,15 +14,24 @@ const { autoUpdater } = electronUpdater
 const GITHUB_REPO = 'ocainadev/iptv-player'
 
 const [OWNER, REPO] = GITHUB_REPO.split('/')
-const API_URL = `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`
-const ALLOWED_PREFIX = `https://github.com/${GITHUB_REPO}/`
+// IPTV_UPDATE_API points the check at a local mock of the GitHub response; it only exists to
+// test the update flow. Links are then allowed on that server instead of GitHub.
+const TEST_API = process.env.IPTV_UPDATE_API
+const API_URL = TEST_API || `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`
+const ALLOWED_PREFIX = TEST_API ? new URL(TEST_API).origin + '/' : `https://github.com/${GITHUB_REPO}/`
 
 // In-app install only works for the installed Windows build. The portable .exe
 // has no install dir to replace, and macOS needs a paid signature for it, so
 // those download the installer instead.
 const AUTO_INSTALL = process.platform === 'win32' && app.isPackaged && !process.env.PORTABLE_EXECUTABLE_DIR
 
+// macOS cannot use electron-updater without a paid signature, so the app downloads the .dmg
+// itself and swaps the .app bundle (see installMac). Files downloaded this way carry no
+// quarantine flag, so Gatekeeper does not ask again.
+const MAC_SELF_INSTALL = process.platform === 'darwin' && app.isPackaged
+
 let installing = false
+let downloadedFile = null
 // The window asks for confirmation on close; that must not block the installer.
 export const isInstalling = () => installing
 
@@ -72,7 +87,7 @@ async function checkManual() {
     const assetUrl = pickAsset(Array.isArray(release.assets) ? release.assets : [])
     return {
       ok: true,
-      mode: 'manual',
+      mode: MAC_SELF_INSTALL && assetUrl ? 'mac' : 'manual',
       current,
       latest,
       hasUpdate: isNewer(latest, current),
@@ -100,11 +115,106 @@ function send(channel, payload) {
   for (const win of BrowserWindow.getAllWindows()) win.webContents.send(channel, payload)
 }
 
+// Downloads the new .dmg to a temp folder, reporting progress to the window.
+async function downloadMac(url) {
+  const dir = join(tmpdir(), 'iptv-player-update')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(dir, { recursive: true })
+  const file = join(dir, 'update.dmg')
+  // A download that stops sending for 30 s is abandoned (the banner then offers a retry).
+  const controller = new AbortController()
+  let idle
+  const armIdleTimer = () => {
+    clearTimeout(idle)
+    idle = setTimeout(() => controller.abort(), 30000)
+  }
+  armIdleTimer()
+  try {
+    return await fetchToFile(url, file, controller.signal, armIdleTimer)
+  } finally {
+    clearTimeout(idle)
+  }
+}
+
+async function fetchToFile(url, file, signal, onActivity) {
+  const res = await fetch(url, { headers: { 'User-Agent': 'iptv-player-updater' }, signal })
+  if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`)
+  const total = Number(res.headers.get('content-length')) || 0
+  let received = 0
+  let lastPercent = -1
+  // Counting happens inside the pipeline itself: one consumer, so backpressure stays correct.
+  await pipeline(
+    Readable.fromWeb(res.body),
+    async function* (chunks) {
+      for await (const chunk of chunks) {
+        onActivity()
+        received += chunk.length
+        const percent = total ? Math.floor((received / total) * 100) : 0
+        if (percent !== lastPercent) {
+          lastPercent = percent
+          send('updater:progress', percent)
+        }
+        yield chunk
+      }
+    },
+    createWriteStream(file + '.part'),
+    { signal }
+  )
+  if (total && received !== total) throw new Error('incomplete download')
+  renameSync(file + '.part', file)
+  return file
+}
+
+// Swaps the running .app for the one inside the downloaded .dmg. A detached shell script does
+// it after this process exits (a running app cannot replace itself), then reopens the app.
+function installMac() {
+  const target = app.getPath('exe').replace(/\/Contents\/MacOS\/[^/]*$/, '')
+  try {
+    if (!downloadedFile || !target.endsWith('.app')) throw new Error('nothing to install')
+    accessSync(dirname(target), constants.W_OK)
+  } catch {
+    // Not writable (or unexpected layout): hand the .dmg to the user instead.
+    if (downloadedFile) shell.openPath(downloadedFile)
+    return { ok: false, message: 'Abri o instalador: arraste o app para a pasta Aplicativos.' }
+  }
+  const script = join(dirname(downloadedFile), 'install.sh')
+  writeFileSync(
+    script,
+    `#!/bin/sh
+while kill -0 "$PID" 2>/dev/null; do sleep 0.3; done
+MNT=$(mktemp -d /tmp/iptv-update-mnt.XXXXXX)
+if hdiutil attach -nobrowse -noverify -quiet -mountpoint "$MNT" "$DMG"; then
+  SRC=$(ls -d "$MNT"/*.app | head -1)
+  rm -rf "$TARGET.new" "$TARGET.old"
+  if [ -n "$SRC" ] && ditto "$SRC" "$TARGET.new"; then
+    mv "$TARGET" "$TARGET.old" && mv "$TARGET.new" "$TARGET" && rm -rf "$TARGET.old"
+  fi
+  rm -rf "$TARGET.new"
+  hdiutil detach -quiet "$MNT"
+fi
+rmdir "$MNT" 2>/dev/null
+xattr -dr com.apple.quarantine "$TARGET" 2>/dev/null
+rm -f "$DMG"
+open "$TARGET"
+`,
+    { mode: 0o700 }
+  )
+  spawn('/bin/sh', [script], {
+    detached: true,
+    stdio: 'ignore',
+    env: { ...process.env, PID: String(process.pid), DMG: downloadedFile, TARGET: target }
+  }).unref()
+  installing = true
+  app.quit()
+  return { ok: true }
+}
+
 export function registerUpdater() {
   if (AUTO_INSTALL && GITHUB_REPO !== 'OWNER/REPO') {
     autoUpdater.setFeedURL({ provider: 'github', owner: OWNER, repo: REPO })
     autoUpdater.autoDownload = false
-    autoUpdater.autoInstallOnAppQuit = false
+    // A downloaded update also installs by itself the next time the app is closed.
+    autoUpdater.autoInstallOnAppQuit = true
     autoUpdater.on('download-progress', (p) => send('updater:progress', Math.round(p.percent)))
     autoUpdater.on('update-downloaded', () => send('updater:downloaded'))
     autoUpdater.on('error', () => send('updater:failed'))
@@ -113,21 +223,31 @@ export function registerUpdater() {
   ipcMain.handle('updater:check', () => (AUTO_INSTALL ? checkAuto() : checkManual()))
 
   // Starts the background download; progress/done/failed arrive as events.
-  ipcMain.handle('updater:download', async () => {
-    if (!AUTO_INSTALL) return false
+  ipcMain.handle('updater:download', async (_e, url) => {
     try {
-      await autoUpdater.downloadUpdate()
-      return true
+      if (AUTO_INSTALL) {
+        await autoUpdater.downloadUpdate()
+        return true
+      }
+      if (MAC_SELF_INSTALL && typeof url === 'string' && url.startsWith(ALLOWED_PREFIX)) {
+        downloadedFile = await downloadMac(url)
+        send('updater:downloaded')
+        return true
+      }
     } catch {
-      return false
+      send('updater:failed')
     }
+    return false
   })
 
   ipcMain.handle('updater:install', () => {
-    if (!AUTO_INSTALL) return false
-    installing = true
-    autoUpdater.quitAndInstall()
-    return true
+    if (AUTO_INSTALL) {
+      installing = true
+      autoUpdater.quitAndInstall()
+      return { ok: true }
+    }
+    if (MAC_SELF_INSTALL) return installMac()
+    return { ok: false }
   })
 
   ipcMain.handle('updater:open', (_e, url) => {

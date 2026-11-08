@@ -399,3 +399,15 @@ html.tv body { padding: 18px 36px; font-size: 18px; }
   .control-bar button { min-width: 44px; min-height: 40px; }
   .control-bar .seek { height: 28px; }
 }
+
+/* Update notice: bottom center, never over a playing video. */
+.update-banner {
+  position: fixed; left: 50%; bottom: calc(16px + var(--safe-bottom, 0px)); transform: translateX(-50%); z-index: 90;
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap; justify-content: center;
+  max-width: calc(100vw - 32px); padding: 10px 16px; border-radius: 12px;
+  background: var(--panel-2, #1f242d); border: 1px solid var(--line, #2a303b); color: var(--text, #e8eaf0);
+  box-shadow: 0 8px 28px #0008; font-size: 14px;
+}
+body:has(.player-modal) .update-banner, body:has(.player.native-fs) .update-banner { display: none; }
+@media (max-width: 820px) { .update-banner { bottom: calc(76px + var(--safe-bottom, 0px)); } }
+.tv .update-banner { font-size: 20px; padding: 14px 22px; bottom: 36px; }

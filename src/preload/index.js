@@ -11,7 +11,7 @@ function on(channel, cb) {
 
 contextBridge.exposeInMainWorld('updater', {
   check: () => ipcRenderer.invoke('updater:check'),
-  download: () => ipcRenderer.invoke('updater:download'),
+  download: (url) => ipcRenderer.invoke('updater:download', url),
   install: () => ipcRenderer.invoke('updater:install'),
   open: (url) => ipcRenderer.invoke('updater:open', url),
   onProgress: (cb) => on('updater:progress', cb),

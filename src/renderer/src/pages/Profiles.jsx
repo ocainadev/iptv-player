@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { deleteProfile, listProfiles } from '../lib/store'
 import { forgetSource } from '../lib/source'
 import UpdateCheck from '../components/UpdateCheck'
-import { isNative } from '../lib/native'
+import { updatesSupported } from '../lib/updates'
 import logo from '../assets/logo.svg'
 
 export default function Profiles() {
@@ -53,7 +53,7 @@ export default function Profiles() {
       </div>
 
       {/* The updater bridge only exists in the Electron build. */}
-      {(window.updater || isNative) && <UpdateCheck />}
+      {updatesSupported && <UpdateCheck />}
     </div>
   )
 }
