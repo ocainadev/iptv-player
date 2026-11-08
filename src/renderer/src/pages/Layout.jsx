@@ -1,5 +1,6 @@
 import { useCallback, useState } from 'react'
 import { Link, NavLink, Navigate, Outlet, useParams } from 'react-router-dom'
+import { isTvMode } from '../lib/tv'
 import { getFavorites, getProfile, toggleFavorite } from '../lib/store'
 import { getSource } from '../lib/source'
 import { ErrorState, Loading, useAsync } from '../components/common'
@@ -23,16 +24,16 @@ export default function Layout() {
   return (
     <div className="app-shell">
       <header className="topbar">
-        <Link to="/" className="brand small" title="Trocar de lista">
+        <Link to="/" className="brand small" title="Trocar de lista" tabIndex={isTvMode() ? -1 : undefined}>
           <img src={logo} alt="" className="brand-logo" />
           IPTV Player
         </Link>
         <nav>
-          <NavLink end to={`/p/${profileId}`}>Início</NavLink>
-          <NavLink to={`/p/${profileId}/live`}>TV ao vivo</NavLink>
-          <NavLink to={`/p/${profileId}/movie`}>Filmes</NavLink>
-          <NavLink to={`/p/${profileId}/series`}>Séries</NavLink>
-          <NavLink to={`/p/${profileId}/search`}>Buscar</NavLink>
+          <NavLink replace end to={`/p/${profileId}`}>Início</NavLink>
+          <NavLink replace to={`/p/${profileId}/live`}>TV ao vivo</NavLink>
+          <NavLink replace to={`/p/${profileId}/movie`}>Filmes</NavLink>
+          <NavLink replace to={`/p/${profileId}/series`}>Séries</NavLink>
+          <NavLink replace to={`/p/${profileId}/search`}>Buscar</NavLink>
         </nav>
         <span className="muted profile-name">{profile.name}</span>
       </header>

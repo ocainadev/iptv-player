@@ -4,6 +4,7 @@ import { ErrorState, Loading, Logo, useAsync } from '../components/common'
 import { PlayerModal } from '../components/Player'
 import { getProgress } from '../lib/store'
 import { usePlayback } from '../lib/playback'
+import { useInitialFocus } from '../lib/tv'
 
 export default function SeriesDetail() {
   const { itemId } = useParams()
@@ -17,12 +18,20 @@ export default function SeriesDetail() {
   }, [source, itemId])
   const [season, setSeason] = useState(null)
   const [, refresh] = useState(0)
-  const { playing, play, close } = usePlayback(profile.id, source, () => refresh((n) => n + 1))
+  const { playing, play, close } = usePlayback(
+    profile.id,
+    source,
+    () => refresh((n) => n + 1),
+    // Going back after "next episode" lands on the season being watched.
+    (entry) => entry.season != null && setSeason(String(entry.season))
+  )
 
   const seasonKeys = Object.keys(data?.info.seasons || {}).sort((a, b) => Number(a) - Number(b))
   useEffect(() => {
     if (seasonKeys.length && !seasonKeys.includes(season)) setSeason(seasonKeys[0])
   }, [seasonKeys, season])
+
+  useInitialFocus(['.episode-list button', '.detail-actions .btn'], !loading && !error && (season !== null || !seasonKeys.length))
 
   if (loading) return <Loading />
   if (error) return <ErrorState error={error} onRetry={retry} />
@@ -42,6 +51,7 @@ export default function SeriesDetail() {
       image: poster || ep.image,
       ref: { kind: 'episode', id: ep.id, ext: ep.ext },
       seriesId: item.id,
+      season: ep.season,
       startAt: saved?.position || 0
     })
   }

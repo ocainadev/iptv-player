@@ -1,8 +1,11 @@
-import { app, BrowserWindow, dialog, Menu, session, shell } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Menu, session, shell } from 'electron'
 import { join } from 'path'
 import { isInstalling, registerUpdater } from './updater'
 
 const isDev = !app.isPackaged && process.env.ELECTRON_RENDERER_URL
+
+// Set by the renderer while a video plays or an update downloads: only then closing asks first.
+let busy = false
 
 // IPTV servers rarely send CORS headers. The renderer fetches the Xtream API
 // and HLS segments directly, so add permissive CORS headers to every response.
@@ -49,13 +52,14 @@ function createWindow() {
   })
 
   win.on('close', (e) => {
-    if (isInstalling()) return
+    if (isInstalling() || !busy) return
     const choice = dialog.showMessageBoxSync(win, {
       type: 'question',
       buttons: ['Sair', 'Cancelar'],
       defaultId: 1,
       title: 'Confirmar',
-      message: 'Deseja fechar o app?'
+      message: 'Deseja fechar o app?',
+      detail: 'Há um vídeo em reprodução ou uma atualização sendo baixada.'
     })
     if (choice === 1) e.preventDefault()
   })
@@ -65,18 +69,61 @@ function createWindow() {
 }
 
 function buildMenu() {
+  const mac = process.platform === 'darwin'
   const template = [
-    ...(process.platform === 'darwin' ? [{ role: 'appMenu' }] : [{ role: 'fileMenu' }]),
-    { role: 'editMenu' },
+    mac
+      ? {
+          label: app.name,
+          submenu: [
+            { role: 'about', label: `Sobre o ${app.name}` },
+            { type: 'separator' },
+            { role: 'services', label: 'Serviços' },
+            { type: 'separator' },
+            { role: 'hide', label: `Ocultar ${app.name}` },
+            { role: 'hideOthers', label: 'Ocultar outros' },
+            { role: 'unhide', label: 'Mostrar tudo' },
+            { type: 'separator' },
+            { role: 'quit', label: `Sair do ${app.name}` }
+          ]
+        }
+      : { label: 'Arquivo', submenu: [{ role: 'quit', label: 'Sair' }] },
     {
-      label: 'View',
-      submenu: [{ role: 'reload' }, { role: 'togglefullscreen' }, { role: 'toggleDevTools' }]
+      label: 'Editar',
+      submenu: [
+        { role: 'undo', label: 'Desfazer' },
+        { role: 'redo', label: 'Refazer' },
+        { type: 'separator' },
+        { role: 'cut', label: 'Recortar' },
+        { role: 'copy', label: 'Copiar' },
+        { role: 'paste', label: 'Colar' },
+        { role: 'selectAll', label: 'Selecionar tudo' }
+      ]
+    },
+    {
+      label: 'Visualizar',
+      submenu: [
+        { role: 'reload', label: 'Recarregar' },
+        { role: 'togglefullscreen', label: 'Tela cheia' },
+        { role: 'toggleDevTools', label: 'Ferramentas do desenvolvedor' }
+      ]
+    },
+    {
+      label: 'Janela',
+      submenu: [
+        { role: 'minimize', label: 'Minimizar' },
+        ...(mac ? [{ role: 'zoom', label: 'Ampliar' }, { type: 'separator' }, { role: 'front', label: 'Trazer tudo para a frente' }] : []),
+        { role: 'close', label: 'Fechar' }
+      ]
     }
   ]
   Menu.setApplicationMenu(Menu.buildFromTemplate(template))
 }
 
 app.whenReady().then(() => {
+  ipcMain.handle('app:version', () => app.getVersion())
+  ipcMain.on('app:busy', (_e, value) => {
+    busy = Boolean(value)
+  })
   allowCrossOrigin()
   registerUpdater()
   buildMenu()

@@ -98,7 +98,16 @@ export function createXtreamSource({ server, username, password }) {
     if (action) query.set('action', action)
     const res = await fetch(`${base}/player_api.php?${query}`)
     if (!res.ok) throw new Error(`Servidor respondeu ${res.status}`)
-    return res.json()
+    const text = await res.text()
+    // Some providers switch the Xtream API off: they answer 200 with an empty body.
+    if (!text.trim()) {
+      throw new Error('O servidor respondeu sem dados: a API Xtream parece desativada neste provedor. Tente cadastrar a lista M3U dele.')
+    }
+    try {
+      return JSON.parse(text)
+    } catch {
+      throw new Error('O servidor não respondeu no formato esperado da API Xtream. Confira o endereço ou tente a lista M3U.')
+    }
   }
 
   return {

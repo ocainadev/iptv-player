@@ -4,6 +4,7 @@ import { getProfile, saveM3uText, saveProfile } from '../lib/store'
 import { createXtreamSource } from '../lib/xtream'
 import { parseM3u } from '../lib/m3u'
 import { fetchM3uText, forgetSource } from '../lib/source'
+import { useInitialFocus } from '../lib/tv'
 
 const EMPTY = { name: '', type: 'xtream', server: '', username: '', password: '', m3uUrl: '' }
 
@@ -16,6 +17,8 @@ export default function AddProfile() {
   const [file, setFile] = useState(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+
+  useInitialFocus('.form input')
 
   const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }))
 

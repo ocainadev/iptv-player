@@ -1,6 +1,10 @@
 import { contextBridge, ipcRenderer } from 'electron'
 
 contextBridge.exposeInMainWorld('platform', { os: process.platform })
+contextBridge.exposeInMainWorld('appInfo', {
+  version: () => ipcRenderer.invoke('app:version'),
+  setBusy: (busy) => ipcRenderer.send('app:busy', Boolean(busy))
+})
 
 // Subscribes to a main-process event and returns the unsubscribe function.
 function on(channel, cb) {

@@ -4,6 +4,7 @@ import mpegts from 'mpegts.js'
 import { enterNativeFullscreen, exitNativeFullscreen, isNative } from '../lib/native'
 import { isTvMode } from '../lib/tv'
 import { NativePlayer } from '../lib/exo'
+import { setBusy } from '../lib/busy'
 
 // Picks the engine by URL: hls.js for .m3u8, mpegts.js for .ts/.flv,
 // the native <video> element for files (mp4, webm...). Live links without
@@ -33,10 +34,14 @@ function endPipSession() {
   session.host.remove()
 }
 
+const SERVER_DOWN = 'Sem resposta do servidor. Verifique a conexão e tente de novo.'
 const UNSUPPORTED_HINT =
   'Formato ou codec não suportado pelo Chromium (comum em MKV, HEVC/H.265 e áudio AC3/DTS).'
 
-export default function Player({ url, fallbackUrl, isLive = false, startAt = 0, onProgress, autoPlay = true, startFullscreen = false }) {
+// Seconds before the next episode starts by itself when one ends.
+const NEXT_COUNTDOWN = 5
+
+export default function Player({ url, fallbackUrl, isLive = false, startAt = 0, onProgress, onNext, onClose, autoPlay = true, startFullscreen = false }) {
   const videoRef = useRef(null)
   const slotRef = useRef(null)
   // Audio and subtitle tracks of the current stream, and how to switch them.
@@ -55,6 +60,10 @@ export default function Player({ url, fallbackUrl, isLive = false, startAt = 0, 
     else video.requestPictureInPicture().catch(() => {})
   }
   const trackApi = useRef({ select: () => {} })
+  // "Próximo episódio em N s" after an episode ends; null when not counting down.
+  const [autoNext, setAutoNext] = useState(null)
+  const unmounting = useRef(false)
+  useEffect(() => () => { unmounting.current = true }, [])
   // Playback state shown in the control bar, on both engines.
   const [media, setMedia] = useState({ position: 0, duration: -1, playing: false, volume: 1, muted: false })
   const engineRef = useRef(null) // { teardown } of the running <video> engine
@@ -79,11 +88,39 @@ export default function Player({ url, fallbackUrl, isLive = false, startAt = 0, 
   const [activeUrl, setActiveUrl] = useState(url)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
+  // "Tentar de novo" bumps `attempt`, which restarts the engine on the original url.
+  const [attempt, setAttempt] = useState(0)
+  // The video reached its end (VOD): offer replay / next / close instead of a dead picture.
+  const [ended, setEnded] = useState(false)
+  const retry = () => {
+    setError('')
+    setLoading(true)
+    setActiveUrl(url)
+    setAttempt((n) => n + 1)
+  }
 
   useEffect(() => {
     setActiveUrl(url)
     setError('')
+    // A new stream (next episode): the old track menu and countdown no longer apply.
+    setMenuOpen(false)
+    setAutoNext(null)
+    setEnded(false)
   }, [url])
+
+  const goNext = () => {
+    setAutoNext(null)
+    onNext?.()
+  }
+  useEffect(() => {
+    if (autoNext === null) return
+    if (autoNext <= 0) return goNext()
+    const timer = setTimeout(() => setAutoNext((n) => n - 1), 1000)
+    return () => clearTimeout(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoNext])
+  const onNextRef = useRef(null)
+  onNextRef.current = onNext
 
   useEffect(() => {
     if (!isNative || !activeUrl) return
@@ -104,7 +141,13 @@ export default function Player({ url, fallbackUrl, isLive = false, startAt = 0, 
     const listen = async () => {
       handles.push(
         await NativePlayer.addListener('tracks', setTracks),
-        await NativePlayer.addListener('state', ({ state }) => setLoading(state === 'buffering')),
+        await NativePlayer.addListener('state', ({ state }) => {
+          setLoading(state === 'buffering')
+          if (state === 'ended') {
+            setEnded(true)
+            if (onNextRef.current) setAutoNext(NEXT_COUNTDOWN)
+          } else if (state === 'ready') setEnded(false)
+        }),
         await NativePlayer.addListener('time', (t) => {
           exo.current = t
           setMedia((m) => ({ ...m, position: t.position, duration: t.duration, playing: t.playing }))
@@ -119,7 +162,7 @@ export default function Player({ url, fallbackUrl, isLive = false, startAt = 0, 
             retries += 1
             setTimeout(start, 1000 * retries)
           } else {
-            fail(network ? 'Não foi possível carregar o stream.' : 'Formato ou codec não suportado neste aparelho.')
+            fail(network ? SERVER_DOWN : 'Formato ou codec não suportado neste aparelho.')
           }
         })
       )
@@ -138,7 +181,7 @@ export default function Player({ url, fallbackUrl, isLive = false, startAt = 0, 
     }
     // onProgress is intentionally left out: a new callback identity must not restart playback.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeUrl, isLive, startAt, autoPlay])
+  }, [activeUrl, isLive, startAt, autoPlay, attempt])
 
   useEffect(() => {
     const video = videoRef.current
@@ -183,7 +226,7 @@ export default function Player({ url, fallbackUrl, isLive = false, startAt = 0, 
           mediaRecoveries += 1
           hls.recoverMediaError()
         } else {
-          fail(data.type === Hls.ErrorTypes.NETWORK_ERROR ? 'Não foi possível carregar o stream.' : UNSUPPORTED_HINT)
+          fail(data.type === Hls.ErrorTypes.NETWORK_ERROR ? SERVER_DOWN : UNSUPPORTED_HINT)
         }
       })
       hls.loadSource(activeUrl)
@@ -191,7 +234,7 @@ export default function Player({ url, fallbackUrl, isLive = false, startAt = 0, 
     } else if (engine === 'mpegts' && mpegts.isSupported()) {
       ts = mpegts.createPlayer({ type: 'mpegts', isLive, url: activeUrl }, { enableWorker: true, lazyLoad: !isLive })
       ts.on(mpegts.Events.ERROR, (type) => {
-        fail(type === mpegts.ErrorTypes.NETWORK_ERROR ? 'Não foi possível carregar o stream.' : UNSUPPORTED_HINT)
+        fail(type === mpegts.ErrorTypes.NETWORK_ERROR ? SERVER_DOWN : UNSUPPORTED_HINT)
       })
       ts.attachMediaElement(video)
       ts.load()
@@ -247,10 +290,19 @@ export default function Player({ url, fallbackUrl, isLive = false, startAt = 0, 
       if (startAt > 0 && !isLive) video.currentTime = startAt
       if (autoPlay) video.play().catch(() => {})
     }
-    const onPlaying = () => setLoading(false)
+    const onPlaying = () => {
+      setLoading(false)
+      setEnded(false)
+    }
     const onWaiting = () => setLoading(true)
     const onVideoError = () => {
-      if (!hls && !ts) fail(UNSUPPORTED_HINT)
+      if (hls || ts) return
+      // A missing or unreachable file also surfaces as "source not supported": ask the server
+      // before blaming the codec.
+      if (video.error?.code === 2) return fail(SERVER_DOWN)
+      fetch(activeUrl, { method: 'HEAD', signal: AbortSignal.timeout(8000) })
+        .then((r) => fail(r.ok || r.status === 405 ? UNSUPPORTED_HINT : SERVER_DOWN))
+        .catch(() => fail(SERVER_DOWN))
     }
 
     let lastReport = 0
@@ -279,6 +331,11 @@ export default function Player({ url, fallbackUrl, isLive = false, startAt = 0, 
     video.addEventListener('waiting', onWaiting)
     video.addEventListener('error', onVideoError)
     video.addEventListener('timeupdate', onTime)
+    const onEnded = () => {
+      setEnded(true)
+      if (onNextRef.current) setAutoNext(NEXT_COUNTDOWN)
+    }
+    video.addEventListener('ended', onEnded)
 
     const teardown = () => {
       clearTimeout(retryTimer)
@@ -302,7 +359,8 @@ export default function Player({ url, fallbackUrl, isLive = false, startAt = 0, 
       engineRef.current = null
       video.removeEventListener('enterpictureinpicture', onEnterPip)
       video.removeEventListener('leavepictureinpicture', onLeavePip)
-      if (document.pictureInPictureElement === video) document.exitPictureInPicture().catch(() => {})
+      // Switching episode keeps a floating video floating; only closing the player ends it.
+      if (unmounting.current && document.pictureInPictureElement === video) document.exitPictureInPicture().catch(() => {})
       video.textTracks.removeEventListener('addtrack', readTracks)
       video.textTracks.removeEventListener('change', readTracks)
       video.audioTracks?.removeEventListener?.('addtrack', readTracks)
@@ -312,20 +370,46 @@ export default function Player({ url, fallbackUrl, isLive = false, startAt = 0, 
       video.removeEventListener('waiting', onWaiting)
       video.removeEventListener('error', onVideoError)
       video.removeEventListener('timeupdate', onTime)
+      video.removeEventListener('ended', onEnded)
       mediaEvents.forEach((ev) => video.removeEventListener(ev, syncMedia))
       teardown()
     }
     // onProgress is intentionally left out: a new callback identity must not restart playback.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeUrl, isLive, startAt, autoPlay])
+  }, [activeUrl, isLive, startAt, autoPlay, attempt])
 
   const containerRef = useRef(null)
   const [view, setView] = useViewSettings()
+  const viewRef = useRef(view)
+  viewRef.current = view
+  // Short on-screen feedback for keyboard/mouse actions on desktop (TV has its own HUD calls).
+  const feedback = (text) => !isNative && !tv && showHud(text)
+  // The ref is updated at once so several quick presses add up before the next render.
+  const cycleMode = () => {
+    const next = nextMode(viewRef.current.mode)
+    viewRef.current = { ...viewRef.current, mode: next }
+    setView((v) => ({ ...v, mode: next }))
+    feedback(`⤢ ${FIT_MODES.find((m) => m.id === next).label}`)
+  }
+  const zoomTo = (z) => {
+    const zoom = clampZoom(z)
+    viewRef.current = { ...viewRef.current, zoom }
+    setView((v) => ({ ...v, zoom }))
+    feedback(`🔍 ${Math.round(zoom * 100)}%`)
+  }
   // On Android the Fullscreen API is unreliable inside the WebView, so fullscreen is
   // a fixed-position CSS layer plus a landscape lock; elsewhere it is the real API.
   const [nativeFs, setNativeFs] = useState(isNative && startFullscreen)
   const tv = isTvMode()
   const [hud, setHud] = useState(null)
+  // A focused button can disappear (the "next episode" button on the last episode, the
+  // countdown prompt): no blur event fires then, so give the focus back to the picture.
+  useEffect(() => {
+    const active = document.activeElement
+    if (active && active !== document.body && containerRef.current?.contains(active)) return
+    if (barFocus) setBarFocus(false)
+    if (tv && (!active || active === document.body)) containerRef.current?.focus()
+  }, [onNext, url, autoNext]) // eslint-disable-line react-hooks/exhaustive-deps
   // Toolbar and touch controls fade out after a few seconds without interaction.
   const [idle, setIdle] = useState(false)
   const hideControls = idle && media.playing
@@ -340,6 +424,11 @@ export default function Player({ url, fallbackUrl, isLive = false, startAt = 0, 
     return () => clearTimeout(idleTimer.current)
   }, [])
   const hudTimer = useRef(null)
+  const busyKey = useRef(`player-${Math.random()}`)
+  useEffect(() => {
+    setBusy(busyKey.current, media.playing && !error)
+  }, [media.playing, error])
+  useEffect(() => () => setBusy(busyKey.current, false), [])
   const fullscreen = () => (isNative ? setNativeFs((f) => !f) : toggleFullscreen(containerRef.current))
 
   useEffect(() => {
@@ -350,13 +439,6 @@ export default function Player({ url, fallbackUrl, isLive = false, startAt = 0, 
     const onBack = (e) => {
       // An open track menu takes the back press (its own handler closes it).
       if (containerRef.current?.classList.contains('menu-open')) return
-      if (containerRef.current?.classList.contains('bar-focus')) {
-        // First back press only returns from the control bar to the picture.
-        e.preventDefault()
-        setBarFocus(false)
-        containerRef.current.focus()
-        return
-      }
       e.preventDefault()
       setNativeFs(false)
     }
@@ -422,12 +504,13 @@ export default function Player({ url, fallbackUrl, isLive = false, startAt = 0, 
     const onKey = (e) => {
       if (e.target.closest?.('input, textarea') || e.metaKey || e.ctrlKey || e.altKey) return
       const key = e.key.toLowerCase()
-      if (key === 'a') setView((v) => ({ ...v, mode: nextMode(v.mode) }))
-      else if (key === '+' || key === '=') setView((v) => ({ ...v, zoom: clampZoom(v.zoom + ZOOM_STEP) }))
-      else if (key === '-') setView((v) => ({ ...v, zoom: clampZoom(v.zoom - ZOOM_STEP) }))
-      else if (key === '0') setView((v) => ({ ...v, zoom: 1 }))
+      if (key === 'a') cycleMode()
+      else if (key === '+' || key === '=') zoomTo(viewRef.current.zoom + ZOOM_STEP)
+      else if (key === '-') zoomTo(viewRef.current.zoom - ZOOM_STEP)
+      else if (key === '0') zoomTo(1)
       else if (key === 'f') fullscreen()
       else if (key === 'c' && hasTracks) setMenuOpen((o) => !o)
+      else if (key === 'n' && onNext) goNext()
       else if (key === 'p' && canPip && !tv) togglePip()
       else if (!isNative && !tv && key === 'm') setVolume(media.volume, !media.muted)
       else if (!isNative && !tv && key === ' ' && !e.target.closest?.('button')) togglePlay()
@@ -438,7 +521,7 @@ export default function Player({ url, fallbackUrl, isLive = false, startAt = 0, 
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [setView, hasTracks, media.volume, media.muted, media.position, media.duration])
+  }, [setView, hasTracks, onNext, media.volume, media.muted, media.position, media.duration])
 
   const mode = FIT_MODES.find((m) => m.id === view.mode) || FIT_MODES[0]
 
@@ -507,7 +590,20 @@ export default function Player({ url, fallbackUrl, isLive = false, startAt = 0, 
   const togglePlay = () => {
     if (isNative) return exo.current.playing ? NativePlayer.pause() : NativePlayer.play()
     const video = videoRef.current
-    if (video) video.paused ? video.play().catch(() => {}) : video.pause()
+    if (!video) return
+    feedback(video.paused ? '▶ Reproduzindo' : '⏸ Pausado')
+    video.paused ? video.play().catch(() => {}) : video.pause()
+  }
+  const replay = () => {
+    setEnded(false)
+    setAutoNext(null)
+    if (isNative) {
+      NativePlayer.seekTo({ position: 0 })
+      NativePlayer.play()
+    } else if (videoRef.current) {
+      videoRef.current.currentTime = 0
+      videoRef.current.play().catch(() => {})
+    }
   }
   const seekTo = (position) => {
     if (isNative) {
@@ -523,12 +619,17 @@ export default function Player({ url, fallbackUrl, isLive = false, startAt = 0, 
   const skip = (delta) => {
     if (isLive || media.duration <= 0) return
     seekTo(Math.min(media.duration, Math.max(0, media.position + delta)))
+    feedback(`${delta > 0 ? '⏩' : '⏪'} ${Math.abs(delta)}s`)
   }
   const setVolume = (volume, muted) => {
     const video = videoRef.current
     if (!video) return
     video.volume = volume
     video.muted = muted
+    // The slider is controlled: update it now, not when `volumechange` arrives, or React
+    // snaps the thumb back to the old value between two quick input events.
+    setMedia((m) => ({ ...m, volume, muted }))
+    feedback(muted || volume === 0 ? '🔇 Mudo' : `🔊 ${Math.round(volume * 100)}%`)
     try {
       localStorage.setItem(VOLUME_KEY, JSON.stringify({ volume, muted }))
     } catch {
@@ -548,7 +649,7 @@ export default function Player({ url, fallbackUrl, isLive = false, startAt = 0, 
 
   return (
     <div
-      className={`player${nativeFs ? ' native-fs' : ''}${hideControls ? ' idle' : ''}${menuOpen ? ' menu-open' : ''}${barFocus ? ' bar-focus' : ''}`}
+      className={`player${nativeFs ? ' native-fs' : ''}${hideControls ? ' idle' : ''}${menuOpen ? ' menu-open' : ''}${barFocus ? ' bar-focus' : ''}${error ? ' has-error' : ''}`}
       ref={containerRef}
       tabIndex={tv ? 0 : undefined}
       onPointerMove={wake}
@@ -568,6 +669,21 @@ export default function Player({ url, fallbackUrl, isLive = false, startAt = 0, 
           onClick={tv ? undefined : onPictureClick}
           onDoubleClick={onPictureDoubleClick}
         />
+      )}
+      {ended && !isLive && !error && autoNext === null && (
+        <div className="next-prompt" role="status">
+          <span>Fim do vídeo</span>
+          <button className="btn primary small" autoFocus onClick={replay}>Assistir de novo</button>
+          {onNext && <button className="btn small" onClick={goNext}>Próximo episódio</button>}
+          {onClose && <button className="btn ghost small" onClick={onClose}>Fechar</button>}
+        </div>
+      )}
+      {autoNext !== null && (
+        <div className="next-prompt" role="status">
+          <span>Próximo episódio em {autoNext} s</span>
+          <button className="btn primary small" autoFocus onClick={goNext}>Reproduzir agora</button>
+          <button className="btn ghost small" onClick={() => { setAutoNext(null); containerRef.current?.focus() }}>Cancelar</button>
+        </div>
       )}
       <div
         className="control-bar"
@@ -601,6 +717,11 @@ export default function Player({ url, fallbackUrl, isLive = false, startAt = 0, 
           {!tv && (
             <button className="ctl-play" title="Reproduzir / pausar (Espaço)" onClick={togglePlay}>{media.playing ? '❚❚' : '▶︎'}</button>
           )}
+          {onNext && (
+            <button className="next-ep" title="Próximo episódio (N)" aria-label="Próximo episódio" onClick={goNext}>
+              ⏭<span className="next-text"> Próximo episódio</span>
+            </button>
+          )}
           <span className="time">
             {isLive ? <b className="live">AO VIVO</b> : media.duration > 0 ? `${formatTime(media.position)} / ${formatTime(media.duration)}` : formatTime(media.position)}
           </span>
@@ -622,14 +743,14 @@ export default function Player({ url, fallbackUrl, isLive = false, startAt = 0, 
             </span>
           )}
           <i className="sep" />
-          <button title="Ajuste à tela (A)" onClick={() => setView((v) => ({ ...v, mode: nextMode(v.mode) }))}>
+          <button title="Ajuste à tela (A)" onClick={cycleMode}>
             ⤢<span className="fit-text"> {mode.label}</span>
           </button>
-          <button title="Diminuir zoom (-)" className="zoom-btn" onClick={() => setView((v) => ({ ...v, zoom: clampZoom(v.zoom - ZOOM_STEP) }))}>−</button>
-          <button title="Zoom normal (0)" className="zoom-btn zoom-value" onClick={() => setView((v) => ({ ...v, zoom: 1 }))}>
+          <button title="Diminuir zoom (-)" className="zoom-btn" onClick={() => zoomTo(viewRef.current.zoom - ZOOM_STEP)}>−</button>
+          <button title="Zoom normal (0)" className="zoom-btn zoom-value" onClick={() => zoomTo(1)}>
             {Math.round(view.zoom * 100)}%
           </button>
-          <button title="Aumentar zoom (+)" className="zoom-btn" onClick={() => setView((v) => ({ ...v, zoom: clampZoom(v.zoom + ZOOM_STEP) }))}>+</button>
+          <button title="Aumentar zoom (+)" className="zoom-btn" onClick={() => zoomTo(viewRef.current.zoom + ZOOM_STEP)}>+</button>
           {canPip && !tv && (
             <button title="Picture-in-picture (P)" className={pip ? 'on' : ''} onClick={togglePip}>⧉</button>
           )}
@@ -661,6 +782,7 @@ export default function Player({ url, fallbackUrl, isLive = false, startAt = 0, 
       {error && (
         <div className="player-overlay">
           <p className="player-error">{error}</p>
+          <button className="btn small player-retry" autoFocus onClick={retry}>Tentar de novo</button>
         </div>
       )}
     </div>
@@ -726,7 +848,7 @@ export function PlayerModal({ title, onClose, ...props }) {
     // Android back button closes the modal (the inner player's fullscreen handler runs first).
     const onBack = (e) => {
       // On a TV, back leaves the player in one press; on a phone it first leaves fullscreen.
-      if (document.querySelector('.player.menu-open, .player.bar-focus')) return
+      if (document.querySelector('.player.menu-open')) return
       if (!isTvMode() && document.querySelector('.player.native-fs')) return
       e.preventDefault()
       onClose()
@@ -745,7 +867,7 @@ export function PlayerModal({ title, onClose, ...props }) {
         <button className="btn ghost" onClick={onClose}>← Voltar</button>
         <h2>{title}</h2>
       </header>
-      <Player {...props} startFullscreen={isTvMode()} />
+      <Player {...props} onClose={onClose} startFullscreen={isTvMode()} />
     </div>
   )
 }

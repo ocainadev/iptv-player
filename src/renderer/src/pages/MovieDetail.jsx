@@ -4,6 +4,7 @@ import { ErrorState, Loading, Logo, useAsync } from '../components/common'
 import { PlayerModal } from '../components/Player'
 import { getProgress } from '../lib/store'
 import { usePlayback } from '../lib/playback'
+import { useInitialFocus } from '../lib/tv'
 
 export default function MovieDetail() {
   const { itemId } = useParams()
@@ -18,6 +19,8 @@ export default function MovieDetail() {
   }, [source, itemId])
   const [, refresh] = useState(0)
   const { playing, play, close } = usePlayback(profile.id, source, () => refresh((n) => n + 1))
+
+  useInitialFocus('.detail-actions .btn.primary', !loading && !error)
 
   if (loading) return <Loading />
   if (error) return <ErrorState error={error} onRetry={retry} />

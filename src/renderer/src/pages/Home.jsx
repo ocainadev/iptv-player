@@ -1,9 +1,10 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Link, useOutletContext } from 'react-router-dom'
 import { Logo, useAsync } from '../components/common'
 import { PlayerModal } from '../components/Player'
 import { listProgress, setProgress } from '../lib/store'
 import { usePlayback } from '../lib/playback'
+import { useInitialFocus } from '../lib/tv'
 
 const ROW_SIZE = 20
 
@@ -26,7 +27,7 @@ function loadHistory(profileId) {
 }
 
 export default function Home() {
-  const { profile, source } = useOutletContext()
+  const { profile, source, favorites } = useOutletContext()
   const account = useAsync(() => source.login(), [source])
   const [history, setHistory] = useState(() => loadHistory(profile.id))
   const { playing, play, close } = usePlayback(profile.id, source, () => setHistory(loadHistory(profile.id)))
@@ -35,6 +36,17 @@ export default function Home() {
     setProgress(profile.id, key, null)
     setHistory(loadHistory(profile.id))
   }
+
+  // Favorite movies and series (live favorites live in the Live TV screen).
+  const catalog = useAsync(
+    () => (favorites.size ? Promise.all([source.items('movie'), source.items('series')]).then((l) => l.flat()) : Promise.resolve([])),
+    [source, favorites.size > 0]
+  )
+  const favItems = useMemo(
+    () => (catalog.data || []).filter((i) => favorites.has(`${i.kind}:${i.id}`)).slice(0, ROW_SIZE),
+    [catalog.data, favorites]
+  )
+  useInitialFocus(['.poster-row .poster > a, .poster-row .poster > button', '.home-links a'])
 
   const base = `/p/${profile.id}`
   const info = account.data
@@ -57,6 +69,22 @@ export default function Home() {
           <ContinueRow title="Continuar assistindo · Filmes" entries={history.movies} onPlay={play} onRemove={removeEntry} />
           <ContinueRow title="Continuar assistindo · Séries" entries={history.series} onPlay={play} onRemove={removeEntry} />
         </>
+      )}
+
+      {favItems.length > 0 && (
+        <section>
+          <h2>Favoritos</h2>
+          <div className="poster-row">
+            {favItems.map((item) => (
+              <div key={`${item.kind}:${item.id}`} className="poster">
+                <Link to={`${base}/${item.kind}/${encodeURIComponent(item.id)}`} title={item.name}>
+                  <Logo src={item.logo} alt={item.name} className="poster-img" />
+                  <span className="poster-title">{item.name}</span>
+                </Link>
+              </div>
+            ))}
+          </div>
+        </section>
       )}
 
       {profile.type === 'xtream' && info && (

@@ -2,6 +2,7 @@
   "appId": "local.personal.iptvplayer",
   "appName": "IPTV Player",
   "webDir": "dist-web",
+  "backgroundColor": "#0f1115",
   "server": {
     "androidScheme": "http",
     "cleartext": true

@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from 'react'
 import { isNative } from './native'
 import { androidUpdater } from './androidUpdate'
+import { setBusy } from './busy'
 
 // One update state for the whole app, on every platform. The check runs by itself a few
 // seconds after start and every few hours; when a new version exists its download starts at
@@ -16,6 +17,7 @@ const listeners = new Set()
 
 function set(patch) {
   state = { ...state, ...patch }
+  setBusy('update', state.status === 'downloading')
   listeners.forEach((cb) => cb())
 }
 
@@ -68,6 +70,8 @@ export async function installUpdate() {
 
 export const openDownload = () => backend.open(state.info?.downloadUrl)
 export const dismissUpdate = () => set({ dismissed: true })
+// Brings the banner back after "Depois" (the version label on the profile screen uses it).
+export const showUpdate = () => set({ dismissed: false })
 
 const FIRST_CHECK_MS = 5000
 const RECHECK_MS = 6 * 60 * 60 * 1000
