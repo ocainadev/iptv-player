@@ -51,6 +51,7 @@ export default function AddProfile() {
         profile = { id, type: 'm3u', name: form.name.trim(), m3uUrl: '' }
       }
 
+      if (existing?.sync) profile.sync = existing.sync // editing must not unlink the profile
       profile.name ||= form.type === 'xtream' ? form.username : 'Minha lista'
       saveProfile(profile)
       forgetSource(id)

@@ -53,6 +53,17 @@ Builds are not signed with a paid certificate:
 - **macOS**: on first open, right-click the app → Open → Open. Or: System Settings → Privacy & Security → Open Anyway.
 - **Windows**: SmartScreen shows "Windows protected your PC" → More info → Run anyway.
 
+## Linux
+
+```bash
+npm run dist:linux   # dist/IPTV-Player-<version>-x86_64.AppImage, -amd64.deb, -arm64.deb
+```
+
+- **AppImage** (x86_64, any distribution): `chmod +x IPTV-Player-*.AppImage && ./IPTV-Player-*.AppImage`. It updates itself like the Windows installer (it needs `latest-linux.yml` on the GitHub release). On Ubuntu 23.10+ the AppArmor restriction on user namespaces can stop the Chromium sandbox: run it with `--no-sandbox` if it refuses to start.
+- **.deb** (Debian, Ubuntu; x86_64 and ARM64, so also Raspberry Pi OS 64-bit): `sudo apt install ./IPTV-Player-*.deb`. The package manager owns the files, so the app only shows a link to the new `.deb`.
+- Chromium on Linux decodes H.264/AAC and HLS, but HEVC depends on hardware decoding (VA-API) and AC3 audio does not play, as on the other desktop builds.
+- For a PC or Raspberry Pi plugged into a TV, force the remote-control interface once with `localStorage.setItem('tvMode', '1')` (DevTools console) and reload.
+
 ## Android (phone and TV)
 
 The same React app runs on Android through Capacitor, with video decoded natively by ExoPlayer (HEVC, MKV, MPEG-TS, HLS). The app detects Android TV and switches to the remote-control interface.
@@ -76,6 +87,68 @@ Without `keystore.properties` the release build is unsigned. To install on a TV,
 - **Windows portable:** only shows a link to the download.
 
 To release: bump `version` in `package.json`, run the desktop builds and `npm run android:apk`, then attach the `.apk` to the GitHub release (tag = version). The app's "Verificar atualizações" button reads the latest release and opens the `.apk` download.
+
+## Syncing progress between devices
+
+"Continue watching" and favorites can follow a profile across devices (for example the same
+list on the TV box and on the phone). Nothing else is shared: the list, user and password are
+registered on each device, and the data that does travel is encrypted on the device first.
+
+There is no shared server and no account. Each person runs their **own** tiny sync service on a
+free Cloudflare account (the code is in `worker/`). It stores one opaque, encrypted blob per pairing
+code and cannot read it. The address and access key of your service are typed once per device and
+never stored in the app's code or in this repository.
+
+### 1. Create your sync service (once, about 5 minutes)
+
+You need Node.js and a free Cloudflare account (https://dash.cloudflare.com/sign-up, no card required).
+
+```bash
+cd worker
+npx wrangler login                      # opens the browser to authorize your account
+npx wrangler kv namespace create SYNC   # prints an id: paste it into worker/wrangler.toml
+                                        # (replace PASTE_THE_NAMESPACE_ID_HERE)
+npx wrangler deploy                     # prints your address, like https://iptv-player-sync.<you>.workers.dev
+```
+
+Note the address `deploy` prints. If it asks you to register a `workers.dev` subdomain, accept (free).
+
+Create an access key so only your devices can use the service (strongly recommended):
+
+```bash
+openssl rand -hex 8                     # prints your key, for example 0123456789abcdef; save it
+npx wrangler secret put ACCESS_TOKEN    # paste the key when asked
+npx wrangler deploy
+```
+
+Without a key, anyone who finds the address could use up your free quota (they still could not read your data).
+
+### 2. Link your devices
+
+1. On the first device open **Sincronizar** on the profile card, type the **address** and the **access key**, and
+   tap **Ativar sincronização**.
+2. To add another device, tap **Gerar código para outro aparelho** on a linked one: it shows 8 digits, valid for
+   5 minutes and usable once.
+3. On the other device open **Sincronizar** → **Tenho um código**, type the same **address** and **key** (once per
+   device) and the 8 digits.
+
+The 8 digits only carry the real long secret across; they are not the encryption key.
+
+### Notes
+
+- Playback progress is pushed at most every 2 minutes and when the player closes (the free KV tier
+  allows about 1,000 writes per day); other devices pull when the app opens, returns to the
+  foreground and every 10 minutes.
+- When two devices change the same item, the most recent change wins. Removing a favorite or
+  finishing a movie propagates too.
+- Movies and episodes are matched by their id in the list, so the devices must use the same provider
+  (same Xtream server or the same M3U list).
+- Anyone who both knows the pairing digits and uses them within the 5-minute window could join the profile, so
+  only generate the code when the other device is ready. Disconnecting a device only unlinks it.
+- To change the key: `npx wrangler secret put ACCESS_TOKEN` again, then type the new key on each device.
+- To remove everything: `npx wrangler delete` in `worker/` and delete the `SYNC` namespace in the Cloudflare dashboard.
+- Check a deployed service: `node --import ./test/register.mjs test/live-check.mjs 'https://<address>#<key>'`
+  (cleans up after itself). Tests: `npm run test:sync` (worker and client against an in-memory store).
 
 ## Limitations
 

@@ -526,3 +526,8 @@ body:has(.player-modal) .update-banner, body:has(.player.native-fs) .update-bann
 
 /* While a TV field is edited with the system keyboard the real input shows in place of its button. */
 .tv input[data-tv-editing="1"] { position: static; width: 100%; height: auto; opacity: 1; pointer-events: auto; }
+
+.control-bar .icon { display: block; }
+.control-bar button { display: inline-flex; align-items: center; gap: 4px; justify-content: center; }
+
+.pair-number { font-size: 40px; font-weight: 700; letter-spacing: 6px; text-align: center; margin: 8px 0; font-variant-numeric: tabular-nums; }

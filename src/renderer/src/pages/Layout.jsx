@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Link, NavLink, Navigate, Outlet, useParams } from 'react-router-dom'
 import { isTvMode } from '../lib/tv'
 import { getFavorites, getProfile, toggleFavorite } from '../lib/store'
@@ -16,6 +16,13 @@ export default function Layout() {
     () => (profile ? getSource(profile) : Promise.reject(new Error('Perfil não encontrado'))),
     [profileId]
   )
+
+  // Favorites changed by another device arrive through the sync.
+  useEffect(() => {
+    const onSynced = (e) => e.detail?.profileId === profileId && setFavorites(getFavorites(profileId))
+    window.addEventListener('iptv:synced', onSynced)
+    return () => window.removeEventListener('iptv:synced', onSynced)
+  }, [profileId])
 
   const toggleFav = useCallback((kind, id) => setFavorites(new Set(toggleFavorite(profileId, kind, id))), [profileId])
 

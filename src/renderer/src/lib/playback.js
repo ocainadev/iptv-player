@@ -65,6 +65,8 @@ export function usePlayback(profileId, source, onSaved, onPlay) {
     playing,
     play,
     close: () => {
+      // Leaving the player: push the progress now instead of waiting for the next slot.
+      window.dispatchEvent(new CustomEvent('iptv:flush'))
       token.current += 1
       setPlaying(null)
     }

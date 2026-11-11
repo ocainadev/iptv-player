@@ -1,0 +1,9 @@
+name = "iptv-player-sync"
+main = "index.js"
+compatibility_date = "2025-01-01"
+
+# Create the namespace once with:  npx wrangler kv namespace create SYNC
+# then paste the printed id below.
+[[kv_namespaces]]
+binding = "SYNC"
+id = "PASTE_THE_NAMESPACE_ID_HERE"

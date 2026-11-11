@@ -20,10 +20,12 @@ const TEST_API = process.env.IPTV_UPDATE_API
 const API_URL = TEST_API || `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`
 const ALLOWED_PREFIX = TEST_API ? new URL(TEST_API).origin + '/' : `https://github.com/${GITHUB_REPO}/`
 
-// In-app install only works for the installed Windows build. The portable .exe
-// has no install dir to replace, and macOS needs a paid signature for it, so
-// those download the installer instead.
-const AUTO_INSTALL = process.platform === 'win32' && app.isPackaged && !process.env.PORTABLE_EXECUTABLE_DIR
+// In-app install (electron-updater) works for the installed Windows build and for the Linux
+// AppImage. The portable .exe has no install dir to replace, a .deb is owned by the package
+// manager, and macOS needs a paid signature for it, so those use another path.
+const WIN_INSTALLED = process.platform === 'win32' && app.isPackaged && !process.env.PORTABLE_EXECUTABLE_DIR
+const LINUX_APPIMAGE = process.platform === 'linux' && app.isPackaged && Boolean(process.env.APPIMAGE)
+const AUTO_INSTALL = WIN_INSTALLED || LINUX_APPIMAGE
 
 // macOS cannot use electron-updater without a paid signature, so the app downloads the .dmg
 // itself and swaps the .app bundle (see installMac). Files downloaded this way carry no
@@ -60,6 +62,12 @@ function pickAsset(assets) {
     found = process.arch === 'arm64' ? dmgs.find((a) => a.name.includes('arm64')) : dmgs.find((a) => !a.name.includes('arm64'))
   } else if (process.platform === 'win32') {
     found = names.find((a) => a.name.endsWith('.exe') && a.name.includes('setup'))
+  } else if (process.platform === 'linux') {
+    // electron-builder names: "IPTV-Player-<ver>-x86_64.AppImage", "...-arm64.AppImage",
+    // "...-amd64.deb", "...-arm64.deb". A .deb install is updated by hand with the new .deb.
+    const arch = process.arch === 'arm64' ? /arm64|aarch64/ : /x86_64|amd64|x64/
+    const ext = app.isPackaged && !process.env.APPIMAGE ? '.deb' : '.appimage'
+    found = names.find((a) => a.name.endsWith(ext) && arch.test(a.name))
   }
   return found?.url ?? null
 }

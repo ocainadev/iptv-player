@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link, useOutletContext } from 'react-router-dom'
 import { Logo, useAsync } from '../components/common'
 import { PlayerModal } from '../components/Player'
@@ -31,6 +31,12 @@ export default function Home() {
   const account = useAsync(() => source.login(), [source])
   const [history, setHistory] = useState(() => loadHistory(profile.id))
   const { playing, play, close } = usePlayback(profile.id, source, () => setHistory(loadHistory(profile.id)))
+
+  useEffect(() => {
+    const onSynced = (e) => e.detail?.profileId === profile.id && setHistory(loadHistory(profile.id))
+    window.addEventListener('iptv:synced', onSynced)
+    return () => window.removeEventListener('iptv:synced', onSynced)
+  }, [profile.id])
 
   const removeEntry = (key) => {
     setProgress(profile.id, key, null)

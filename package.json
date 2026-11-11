@@ -1,8 +1,14 @@
 {
   "name": "iptv-player",
   "productName": "IPTV Player",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "Personal IPTV player for Xtream Codes and M3U playlists",
+  "author": {
+    "name": "ocainadev",
+    "email": "ocainadev@users.noreply.github.com"
+  },
+  "homepage": "https://github.com/ocainadev/iptv-player",
+  "license": "UNLICENSED",
   "main": "./out/main/index.js",
   "private": true,
   "scripts": {
@@ -14,8 +20,10 @@
     "android:open": "cap open android",
     "dist:mac": "electron-vite build && electron-builder --mac",
     "dist:win": "electron-vite build && electron-builder --win",
-    "dist": "electron-vite build && electron-builder --mac --win",
-    "android:apk": "npm run android:sync && cd android && ./gradlew assembleRelease && mkdir -p ../dist && cp app/build/outputs/apk/release/app-release.apk ../dist/IPTV-Player-$npm_package_version.apk"
+    "dist:linux": "electron-vite build && electron-builder --linux",
+    "dist": "electron-vite build && electron-builder --mac --win --linux",
+    "android:apk": "npm run android:sync && cd android && ./gradlew assembleRelease && mkdir -p ../dist && cp app/build/outputs/apk/release/app-release.apk ../dist/IPTV-Player-$npm_package_version.apk",
+    "test:sync": "node --import ./test/register.mjs --test test/sync.test.mjs"
   },
   "dependencies": {
     "@capacitor/android": "^8.6.0",

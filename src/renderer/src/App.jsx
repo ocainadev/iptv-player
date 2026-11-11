@@ -10,11 +10,14 @@ import MovieDetail from './pages/MovieDetail'
 import SeriesDetail from './pages/SeriesDetail'
 import Search from './pages/Search'
 import UpdateBanner from './components/UpdateBanner'
+import SyncProfile from './pages/SyncProfile'
 import { startAutoCheck } from './lib/updates'
+import { startSync } from './lib/sync'
 
 // HashRouter because production loads index.html from file://.
 export default function App() {
   useEffect(() => startAutoCheck(), [])
+  useEffect(() => startSync(), [])
   return (
     <HashRouter>
       <UpdateBanner />
@@ -22,6 +25,7 @@ export default function App() {
         <Route path="/" element={<Profiles />} />
         <Route path="/add" element={<AddProfile />} />
         <Route path="/edit/:profileId" element={<AddProfile />} />
+        <Route path="/sync/:profileId" element={<SyncProfile />} />
         <Route path="/p/:profileId" element={<Layout />}>
           <Route index element={<Home />} />
           <Route path="live" element={<Live />} />

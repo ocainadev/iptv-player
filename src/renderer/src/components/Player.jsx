@@ -297,12 +297,8 @@ export default function Player({ url, fallbackUrl, isLive = false, startAt = 0, 
     const onWaiting = () => setLoading(true)
     const onVideoError = () => {
       if (hls || ts) return
-      // A missing or unreachable file also surfaces as "source not supported": ask the server
-      // before blaming the codec.
-      if (video.error?.code === 2) return fail(SERVER_DOWN)
-      fetch(activeUrl, { method: 'HEAD', signal: AbortSignal.timeout(8000) })
-        .then((r) => fail(r.ok || r.status === 405 ? UNSUPPORTED_HINT : SERVER_DOWN))
-        .catch(() => fail(SERVER_DOWN))
+      // No extra request to the stream URL here: providers count every one as a connection.
+      fail(video.error?.code === 2 ? SERVER_DOWN : UNSUPPORTED_HINT)
     }
 
     let lastReport = 0
@@ -728,7 +724,7 @@ export default function Player({ url, fallbackUrl, isLive = false, startAt = 0, 
           {!isNative && !tv && (
             <span className="volume">
               <button title="Mudo (M)" onClick={() => setVolume(media.volume, !media.muted)}>
-                {media.muted || media.volume === 0 ? '🔇' : '🔊'}
+                <Icon name={media.muted || media.volume === 0 ? 'mute' : 'volume'} />
               </button>
               <input
                 className="vol"
@@ -744,7 +740,7 @@ export default function Player({ url, fallbackUrl, isLive = false, startAt = 0, 
           )}
           <i className="sep" />
           <button title="Ajuste à tela (A)" onClick={cycleMode}>
-            ⤢<span className="fit-text"> {mode.label}</span>
+            <Icon name="fit" /><span className="fit-text"> {mode.label}</span>
           </button>
           <button title="Diminuir zoom (-)" className="zoom-btn" onClick={() => zoomTo(viewRef.current.zoom - ZOOM_STEP)}>−</button>
           <button title="Zoom normal (0)" className="zoom-btn zoom-value" onClick={() => zoomTo(1)}>
@@ -752,12 +748,12 @@ export default function Player({ url, fallbackUrl, isLive = false, startAt = 0, 
           </button>
           <button title="Aumentar zoom (+)" className="zoom-btn" onClick={() => zoomTo(viewRef.current.zoom + ZOOM_STEP)}>+</button>
           {canPip && !tv && (
-            <button title="Picture-in-picture (P)" className={pip ? 'on' : ''} onClick={togglePip}>⧉</button>
+            <button title="Picture-in-picture (P)" className={pip ? 'on' : ''} onClick={togglePip}><Icon name="pip" /></button>
           )}
           {hasTracks && (
             <button title="Áudio e legendas (C)" onClick={() => setMenuOpen((o) => !o)}>CC</button>
           )}
-          <button title="Tela cheia (F)" onClick={fullscreen}>⛶</button>
+          <button title="Tela cheia (F)" onClick={fullscreen}><Icon name="fullscreen" /></button>
         </div>
       </div>
       {menuOpen && (
@@ -786,6 +782,24 @@ export default function Player({ url, fallbackUrl, isLive = false, startAt = 0, 
         </div>
       )}
     </div>
+  )
+}
+
+// Control-bar icons are inline SVG: emoji and symbol glyphs (🔊 ⧉ ⛶) show as empty boxes on
+// systems without a symbol/emoji font, which includes minimal Linux installs.
+const ICONS = {
+  volume: 'M3 9v6h4l5 4V5L7 9H3zm13.5 3a4.5 4.5 0 0 0-2.5-4v8a4.5 4.5 0 0 0 2.5-4zM14 3.2v2.1a7 7 0 0 1 0 13.4v2.1a9 9 0 0 0 0-17.6z',
+  mute: 'M3 9v6h4l5 4V5L7 9H3zm13.6 3L19 9.6 17.6 8.2 15.2 10.6 12.8 8.2 11.4 9.6 13.8 12l-2.4 2.4 1.4 1.4 2.4-2.4 2.4 2.4 1.4-1.4L16.6 12z',
+  pip: 'M19 11h-8v6h8v-6zm4 8V4.98C23 3.88 22.1 3 21 3H3c-1.1 0-2 .88-2 1.98V19c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2zm-2 .02H3V4.97h18v14.05z',
+  fullscreen: 'M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z',
+  fit: 'M5 5h5v2H7v3H5V5zm9 0h5v5h-2V7h-3V5zM5 14h2v3h3v2H5v-5zm12 0h2v5h-5v-2h3v-3z'
+}
+
+function Icon({ name }) {
+  return (
+    <svg className="icon" viewBox="0 0 24 24" width="1.25em" height="1.25em" fill="currentColor" aria-hidden="true">
+      <path d={ICONS[name]} />
+    </svg>
   )
 }
 

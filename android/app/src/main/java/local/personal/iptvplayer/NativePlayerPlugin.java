@@ -147,6 +147,15 @@ public class NativePlayerPlugin extends Plugin {
         double startAt = call.getDouble("startAt", 0.0);
         boolean autoPlay = call.getBoolean("autoPlay", true);
         ui(() -> {
+            start(url, startAt, autoPlay);
+            call.resolve();
+        });
+    }
+
+    // Builds the player and view and starts the stream. Runs on the UI thread.
+    private void start(String url, double startAt, boolean autoPlay) {
+        lastUrl = url;
+        {
             release();
             ViewGroup parent = (ViewGroup) getBridge().getWebView().getParent();
             parent.setBackgroundColor(APP_BACKGROUND);
@@ -180,8 +189,29 @@ public class NativePlayerPlugin extends Plugin {
             player.prepare();
             main.removeCallbacks(ticker);
             main.post(ticker);
-            call.resolve();
-        });
+        }
+    }
+
+    // The app went to the background: the stream is released so the provider's
+    // connection closes, and it is rebuilt at the same spot (paused) on return.
+    private String lastUrl;
+    private String resumeUrl;
+    private double resumeAt;
+
+    @Override
+    protected void handleOnPause() {
+        if (player == null || lastUrl == null) return;
+        resumeUrl = lastUrl;
+        resumeAt = live ? 0 : player.getCurrentPosition() / 1000.0;
+        release();
+    }
+
+    @Override
+    protected void handleOnResume() {
+        if (resumeUrl == null) return;
+        String url = resumeUrl;
+        resumeUrl = null;
+        if (player == null) start(url, resumeAt, false);
     }
 
     // Rectangle in CSS pixels, plus fit mode (contain|cover|fill) and zoom. The page
@@ -243,6 +273,8 @@ public class NativePlayerPlugin extends Plugin {
 
     @PluginMethod
     public void stop(PluginCall call) {
+        resumeUrl = null;
+        lastUrl = null;
         ui(this::release);
         call.resolve();
     }
@@ -259,11 +291,6 @@ public class NativePlayerPlugin extends Plugin {
             if (parent != null) parent.removeView(view);
             view = null;
         }
-    }
-
-    @Override
-    protected void handleOnPause() {
-        if (player != null) player.pause();
     }
 
     @Override

@@ -44,6 +44,7 @@ export default function Profiles() {
             </button>
             <div className="profile-actions">
               <Link className="btn ghost small" to={`/edit/${p.id}`}>Editar</Link>
+              <Link className="btn ghost small" to={`/sync/${p.id}`}>{p.sync ? 'Sincronizado' : 'Sincronizar'}</Link>
               {confirming === p.id ? (
                 <>
                   <button className="btn danger small" onClick={() => remove(p.id)}>Confirmar</button>

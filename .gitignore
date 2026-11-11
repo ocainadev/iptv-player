@@ -9,4 +9,7 @@ dist-web/
 *.jks
 *.keystore
 keystore.properties
-dist-web
+
+# Wrangler (Cloudflare) local state: contains data from this machine
+.wrangler/
+worker/node_modules/
