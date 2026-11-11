@@ -90,14 +90,40 @@ export function setProgress(profileId, key, entry) {
   emit('iptv:data', profileId)
 }
 
+// "Watched" marks live in the same map (so they sync with it) under `seen:<kind>:<id>`;
+// they are not "continue watching" entries.
+const SEEN = 'seen:'
+
+export function isSeen(profileId, key) {
+  const entry = rawProgress(profileId)[SEEN + key]
+  return Boolean(entry && !entry.removed)
+}
+
+export function listSeen(profileId) {
+  return new Set(
+    Object.entries(rawProgress(profileId))
+      .filter(([key, value]) => key.startsWith(SEEN) && !value.removed)
+      .map(([key]) => key.slice(SEEN.length))
+  )
+}
+
+// Marking as watched also drops the half-watched entry; unmarking only removes the mark.
+export function setSeen(profileId, key, on) {
+  const all = rawProgress(profileId)
+  all[SEEN + key] = on ? { seen: true, updatedAt: Date.now() } : { removed: true, updatedAt: Date.now() }
+  if (on && all[key] && !all[key].removed) all[key] = { removed: true, updatedAt: Date.now() }
+  writeJson(`progress:${profileId}`, all)
+  emit('iptv:data', profileId)
+}
+
 export function listProgress(profileId) {
   return Object.entries(rawProgress(profileId))
-    .filter(([, value]) => !value.removed)
+    .filter(([key, value]) => !value.removed && !key.startsWith(SEEN))
     .map(([key, value]) => ({ key, ...value }))
     .sort((a, b) => b.updatedAt - a.updatedAt)
 }
 
-// What goes to the other devices: progress and favorites only (never lists or passwords).
+// What goes to the other devices: progress, favorites and watched marks only (never lists or passwords).
 export function exportSyncState(profileId) {
   return {
     progress: pruneOld(rawProgress(profileId), (e) => e.updatedAt || 0, (e) => e.removed),

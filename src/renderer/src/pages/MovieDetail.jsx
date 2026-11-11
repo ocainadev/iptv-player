@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useNavigate, useOutletContext, useParams } from 'react-router-dom'
 import { ErrorState, Loading, Logo, useAsync } from '../components/common'
 import { PlayerModal } from '../components/Player'
-import { getProgress } from '../lib/store'
+import { getProgress, isSeen, setSeen } from '../lib/store'
 import { usePlayback } from '../lib/playback'
 import { useInitialFocus } from '../lib/tv'
 
@@ -32,6 +32,7 @@ export default function MovieDetail() {
   const image = info.poster || item.logo
   const ref = { kind: 'movie', id: item.id, ext: info.ext || item.ext }
   const isFav = favorites.has(key)
+  const seen = isSeen(profile.id, key)
 
   return (
     <div className="detail" style={info.backdrop ? { '--backdrop': `url("${info.backdrop}")` } : undefined}>
@@ -60,6 +61,15 @@ export default function MovieDetail() {
             )}
             <button className={`btn ${isFav ? 'on' : ''}`} onClick={() => toggleFav('movie', item.id)}>
               {isFav ? '★ Favorito' : '☆ Favoritar'}
+            </button>
+            <button
+              className={`btn small ghost ${seen ? 'on' : ''}`}
+              onClick={() => {
+                setSeen(profile.id, key, !seen)
+                refresh((n) => n + 1)
+              }}
+            >
+              {seen ? '✓ Assistido' : '✓ Marcar assistido'}
             </button>
             {info.trailer && (
               <a className="btn ghost" href={`https://www.youtube.com/watch?v=${info.trailer}`} target="_blank" rel="noreferrer">Trailer</a>

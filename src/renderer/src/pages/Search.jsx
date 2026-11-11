@@ -63,10 +63,10 @@ export default function Search() {
             </ul>
           </Section>
           <Section title="Filmes" count={results.movie.length}>
-            <PosterGrid items={results.movie.slice(0, LIMIT)} kind="movie" base={base} favorites={favorites} toggleFav={toggleFav} />
+            <PosterGrid items={results.movie.slice(0, LIMIT)} kind="movie" profileId={profile.id} base={base} favorites={favorites} toggleFav={toggleFav} />
           </Section>
           <Section title="Séries" count={results.series.length}>
-            <PosterGrid items={results.series.slice(0, LIMIT)} kind="series" base={base} favorites={favorites} toggleFav={toggleFav} />
+            <PosterGrid items={results.series.slice(0, LIMIT)} kind="series" profileId={profile.id} base={base} favorites={favorites} toggleFav={toggleFav} />
           </Section>
         </>
       )}

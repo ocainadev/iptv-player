@@ -144,6 +144,8 @@ export default function Player({ url, fallbackUrl, isLive = false, startAt = 0, 
         await NativePlayer.addListener('state', ({ state }) => {
           setLoading(state === 'buffering')
           if (state === 'ended') {
+            // Report the end now, so "watched" and the next episode do not wait for the next tick.
+            if (onProgress && !isLive && exo.current?.duration > 0) onProgress(exo.current.duration, exo.current.duration)
             setEnded(true)
             if (onNextRef.current) setAutoNext(NEXT_COUNTDOWN)
           } else if (state === 'ready') setEnded(false)
@@ -328,6 +330,7 @@ export default function Player({ url, fallbackUrl, isLive = false, startAt = 0, 
     video.addEventListener('error', onVideoError)
     video.addEventListener('timeupdate', onTime)
     const onEnded = () => {
+      if (onProgress && !isLive && video.duration > 0) onProgress(video.duration, video.duration)
       setEnded(true)
       if (onNextRef.current) setAutoNext(NEXT_COUNTDOWN)
     }
@@ -638,8 +641,17 @@ export default function Player({ url, fallbackUrl, isLive = false, startAt = 0, 
     clearTimeout(clickTimer.current)
     clickTimer.current = setTimeout(togglePlay, 220)
   }
-  const onPictureDoubleClick = () => {
+  // Touch: double tap on the left/right third of the picture seeks 10 s back/forward (not on
+  // live streams); the middle, and any mouse double click, still toggles fullscreen.
+  const lastPointer = useRef('mouse')
+  const onPictureDoubleClick = (e) => {
     clearTimeout(clickTimer.current)
+    if (lastPointer.current === 'touch' && !isLive && media.duration > 0) {
+      const rect = containerRef.current.getBoundingClientRect()
+      const x = (e.clientX - rect.left) / rect.width
+      if (x < 0.33) return skip(-DOUBLE_TAP_SKIP)
+      if (x > 0.67) return skip(DOUBLE_TAP_SKIP)
+    }
     fullscreen()
   }
 
@@ -649,14 +661,17 @@ export default function Player({ url, fallbackUrl, isLive = false, startAt = 0, 
       ref={containerRef}
       tabIndex={tv ? 0 : undefined}
       onPointerMove={wake}
-      onPointerDown={wake}
+      onPointerDown={(e) => {
+        lastPointer.current = e.pointerType
+        wake()
+      }}
       onKeyDown={(e) => {
         wake()
         onTvKey(e)
       }}
     >
       {isNative ? (
-        <div ref={slotRef} className="exo-slot" onDoubleClick={fullscreen} />
+        <div ref={slotRef} className="exo-slot" onDoubleClick={onPictureDoubleClick} />
       ) : (
         <video
           ref={videoRef}
@@ -823,11 +838,12 @@ const formatTime = (seconds) => {
   return h ? `${h}:${String(m).padStart(2, '0')}:${sec}` : `${m}:${sec}`
 }
 const VIEW_KEY = 'player:view'
+const DOUBLE_TAP_SKIP = 10 // seconds
 
 const nextMode = (id) => FIT_MODES[(FIT_MODES.findIndex((m) => m.id === id) + 1) % FIT_MODES.length].id
 const clampZoom = (z) => Math.min(2, Math.max(1, Math.round(z * 100) / 100))
 
-// The fit mode and zoom are remembered across videos and app restarts.
+// The fit mode and zoom are remembered across videos and app restarts (per device).
 function useViewSettings() {
   const [view, setView] = useState(() => {
     try {

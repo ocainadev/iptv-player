@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState } from 'react'
-import { getProgress, setProgress } from './store'
+import { getProgress, isSeen, setProgress, setSeen } from './store'
 import { findNextEpisode } from './episodes'
 
 // Shared state for the full-window player. `play` takes a playback entry:
@@ -8,7 +8,8 @@ import { findNextEpisode } from './episodes'
 // or, for streams that are not resumable, { title, stream: { url, fallbackUrl? }, isLive }.
 // Progress stores the `ref`, never the URL: URLs carry credentials and the
 // stream address is rebuilt from the current profile at play time.
-// Near the end (last 3%) the entry is removed instead.
+// Near the end (last 3%) the entry is removed instead; for an episode with a known next
+// episode, the next one takes its place (position 0) so the show keeps showing up.
 // An episode entry with a `seriesId` also gets `onNext` once the show's episodes are known:
 // it plays the following episode in the same player (see findNextEpisode).
 export function resolveStream(source, ref) {
@@ -26,11 +27,19 @@ export function usePlayback(profileId, source, onSaved, onPlay) {
       onPlay?.(entry)
       const { key, title, image, ref, seriesId, startAt = 0, isLive = false } = entry
       const stream = entry.stream || resolveStream(source, ref)
+      let nextEntry = null // filled once the show's episode list is known
       const onProgress =
         key && ref && !isLive
           ? (position, duration) => {
               const finished = duration > 0 && position / duration > 0.97
-              setProgress(profileId, key, finished ? null : { title, image, ref, seriesId, position, duration })
+              if (finished && !isSeen(profileId, key)) setSeen(profileId, key, true)
+              if (finished && nextEntry && !getProgress(profileId, nextEntry.key)) {
+                // Episode finished: the show stays in "continue watching", now at the next episode.
+                setProgress(profileId, key, null)
+                setProgress(profileId, nextEntry.key, { title: nextEntry.title, image: nextEntry.image, ref: nextEntry.ref, seriesId, position: 0, duration: 0 })
+              } else {
+                setProgress(profileId, key, finished ? null : { title, image, ref, seriesId, position, duration })
+              }
               onSaved?.()
             }
           : undefined
@@ -44,7 +53,7 @@ export function usePlayback(profileId, source, onSaved, onPlay) {
           if (!next || token.current !== mine) return
           const nextKey = `episode:${next.id}`
           const show = info.name || title.split(' · ')[0]
-          const nextEntry = {
+          nextEntry = {
             key: nextKey,
             title: `${show} · T${next.season} E${next.episode}`,
             image: image || next.image,

@@ -212,6 +212,22 @@ input:focus { border-color: var(--accent); }
 .poster .fav.on { color: var(--gold); }
 .poster .remove { position: absolute; top: 4px; right: 4px; width: 24px; height: 24px; border-radius: 50%; background: #000a; text-align: center; }
 .logo-fallback { display: grid; place-items: center; background: var(--panel-2); color: var(--muted); font-weight: 700; }
+/* Small, quiet "watched" marks. */
+.seen-mark { color: var(--accent-2); font-weight: 700; }
+.episode-list li { position: relative; }
+.episode-list li.seen > button:first-child { opacity: .6; }
+/* Small round check at the episode's right side, centered vertically; opaque only when marked. */
+.episode-list li > button:first-child { padding-right: 48px; }
+.episode-list li > button.seen-toggle {
+  position: absolute; top: 50%; right: 14px; transform: translateY(-50%);
+  width: 22px; height: 22px; min-height: 0; padding: 0; gap: 0; flex: none;
+  border-radius: 50%; background: transparent; border: 1px solid #ffffff40; color: transparent;
+  font-size: 12px; line-height: 1; display: grid; place-items: center;
+}
+.episode-list li:hover > button.seen-toggle, .episode-list li > button.seen-toggle:focus-visible { color: #fff8; }
+@media (hover: none) { .episode-list li > button.seen-toggle { color: #fff8; } }
+.episode-list li > button.seen-toggle.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.season-actions { margin: 0 0 8px; }
 .progress-bar { display: block; height: 3px; margin-top: 6px; background: var(--line); border-radius: 2px; overflow: hidden; }
 .progress-bar span { display: block; height: 100%; background: var(--accent); }
 .sentinel { height: 1px; }
@@ -445,6 +461,9 @@ html.tv { --tv-poster-w: clamp(96px, 24vh, 144px); }
 .exo-slot { position: absolute; inset: 0; }
 .exo-active:has(.exo-slot), .exo-active *:has(.exo-slot) { background: transparent !important; }
 .exo-hide { visibility: hidden !important; }
+/* Fullscreen: borders/shadows of the slot's ancestors (e.g. the live preview's bottom line) are drawn
+   over the picture, so they are made invisible too. */
+.exo-active:has(.player.native-fs) *:has(.exo-slot) { border-color: transparent !important; box-shadow: none !important; outline-color: transparent !important; }
 .exo-active *:has(.exo-slot)::before, .exo-active *:has(.exo-slot)::after { background: transparent !important; }
 
 /* Audio and subtitle menu */

@@ -117,6 +117,30 @@ test('nothing new means no write to the server', async () => {
   assert.equal(puts(), before)
 })
 
+test('watched marks travel between devices', async () => {
+  use(deviceA)
+  store.setProgress('pa', 'movie:9', { title: 'X', ref: { kind: 'movie', id: '9' }, position: 5, duration: 100 })
+  store.setSeen('pa', 'movie:9', true)
+  assert.ok(store.isSeen('pa', 'movie:9'))
+  assert.equal(store.getProgress('pa', 'movie:9'), null) // marking drops the half-watched entry
+  assert.ok(!store.listProgress('pa').some((e) => e.key.startsWith('seen:'))) // never a "continue" card
+  await sync.syncProfile('pa')
+
+  use(deviceB)
+  await sync.syncProfile('pb')
+  assert.ok(store.isSeen('pb', 'movie:9'))
+  assert.ok(store.listSeen('pb').has('movie:9'))
+  assert.ok(!store.listProgress('pb').some((e) => e.key.startsWith('seen:')))
+
+  // Unmarking on B wins on A.
+  await wait(5)
+  store.setSeen('pb', 'movie:9', false)
+  await sync.syncProfile('pb')
+  use(deviceA)
+  await sync.syncProfile('pa')
+  assert.ok(!store.isSeen('pa', 'movie:9'))
+})
+
 test('wrong or malformed number is rejected and does not link', async () => {
   use(deviceB)
   store.saveProfile({ id: 'pc', name: 'X', type: 'm3u', m3uUrl: 'http://l/x.m3u' })

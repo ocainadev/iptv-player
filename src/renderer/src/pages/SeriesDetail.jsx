@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate, useOutletContext, useParams } from 'react-router-dom'
 import { ErrorState, Loading, Logo, useAsync } from '../components/common'
 import { PlayerModal } from '../components/Player'
-import { getProgress } from '../lib/store'
+import { getProgress, isSeen, setSeen } from '../lib/store'
 import { usePlayback } from '../lib/playback'
 import { useInitialFocus } from '../lib/tv'
 
@@ -81,11 +81,24 @@ export default function SeriesDetail() {
               <button key={s} className={s === season ? 'active' : ''} onClick={() => setSeason(s)}>Temporada {s}</button>
             ))}
           </div>
+          <div className="season-actions">
+            <button
+              className="btn small ghost"
+              onClick={() => {
+                const all = episodes.every((ep) => isSeen(profile.id, `episode:${ep.id}`))
+                episodes.forEach((ep) => setSeen(profile.id, `episode:${ep.id}`, !all))
+                refresh((n) => n + 1)
+              }}
+            >
+              {episodes.every((ep) => isSeen(profile.id, `episode:${ep.id}`)) ? '✓ Desmarcar temporada' : '✓ Marcar temporada'}
+            </button>
+          </div>
           <ul className="episode-list">
             {episodes.map((ep) => {
               const saved = getProgress(profile.id, `episode:${ep.id}`)
+              const seen = isSeen(profile.id, `episode:${ep.id}`)
               return (
-                <li key={ep.id}>
+                <li key={ep.id} className={seen ? 'seen' : undefined}>
                   <button onClick={() => playEpisode(ep)}>
                     <Logo src={ep.image || poster} alt={ep.title} className="episode-img" />
                     <div>
@@ -96,6 +109,17 @@ export default function SeriesDetail() {
                         <span className="progress-bar"><span style={{ width: `${(saved.position / saved.duration) * 100}%` }} /></span>
                       )}
                     </div>
+                  </button>
+                  <button
+                    className={`seen-toggle${seen ? ' on' : ''}`}
+                    title={seen ? 'Desmarcar como assistido' : 'Marcar como assistido'}
+                    aria-label={seen ? `Desmarcar ${ep.title} como assistido` : `Marcar ${ep.title} como assistido`}
+                    onClick={() => {
+                      setSeen(profile.id, `episode:${ep.id}`, !seen)
+                      refresh((n) => n + 1)
+                    }}
+                  >
+                    ✓
                   </button>
                 </li>
               )

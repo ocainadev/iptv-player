@@ -4,6 +4,7 @@ import { CategoryList, ErrorState, Loading, Logo, useAsync, useIncremental, useR
 import { ALL, filterItems, withSpecialCategories } from '../lib/catalog'
 import { useBrowseState } from '../lib/browseState'
 import { isTvMode, useInitialFocus } from '../lib/tv'
+import { listSeen } from '../lib/store'
 
 // Poster grid for movies or series, with a category sidebar.
 export default function Catalog({ kind }) {
@@ -61,6 +62,7 @@ function CatalogView({ kind }) {
       <section className="catalog-main" ref={mainRef} onScroll={onScroll} onFocus={onFocus}>
         <input className="search-input" data-tv-vertical placeholder="Filtrar" value={query} onChange={(e) => changeQuery(e.target.value)} />
         <PosterGrid
+          profileId={profile.id}
           items={list}
           kind={kind}
           base={`/p/${profile.id}`}
@@ -74,8 +76,9 @@ function CatalogView({ kind }) {
   )
 }
 
-export function PosterGrid({ items, kind, base, favorites, toggleFav, initialCount, onCount }) {
+export function PosterGrid({ items, kind, base, favorites, toggleFav, initialCount, onCount, profileId }) {
   const { visible, count, hasMore, sentinel } = useIncremental(items, 120, initialCount || 120)
+  const seen = useMemo(() => (profileId ? listSeen(profileId) : new Set()), [profileId, items])
   useEffect(() => onCount?.(count), [count]) // eslint-disable-line react-hooks/exhaustive-deps
   if (!items.length) return <p className="muted pad">Nada encontrado.</p>
   return (
@@ -85,7 +88,10 @@ export function PosterGrid({ items, kind, base, favorites, toggleFav, initialCou
           <div key={item.id} className="poster">
             <Link to={`${base}/${item.kind || kind}/${encodeURIComponent(item.id)}`} data-item={item.id} title={item.name}>
               <Logo src={item.logo} alt={item.name} className="poster-img" />
-              <span className="poster-title">{item.name}</span>
+              <span className="poster-title">
+                {(item.kind || kind) === 'movie' && seen.has(`movie:${item.id}`) && <span className="seen-mark" title="Assistido">✓ </span>}
+                {item.name}
+              </span>
               {item.rating && Number(item.rating) > 0 && <span className="rating">★ {Number(item.rating).toFixed(1)}</span>}
             </Link>
             {toggleFav && (
