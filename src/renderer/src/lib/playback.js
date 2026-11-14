@@ -40,7 +40,8 @@ export function usePlayback(profileId, source, onSaved, onPlay) {
               } else {
                 setProgress(profileId, key, finished ? null : { title, image, ref, seriesId, position, duration })
               }
-              onSaved?.()
+              // No `onSaved` here: it redraws the page behind the player (poster rows, episode
+              // list), which is wasted work every 5 s. The page is refreshed in `close` instead.
             }
           : undefined
       setPlaying({ title, url: stream.url, fallbackUrl: stream.fallbackUrl, startAt, isLive, onProgress })
@@ -78,6 +79,7 @@ export function usePlayback(profileId, source, onSaved, onPlay) {
       window.dispatchEvent(new CustomEvent('iptv:flush'))
       token.current += 1
       setPlaying(null)
+      onSaved?.()
     }
   }
 }

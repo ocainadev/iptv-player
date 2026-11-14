@@ -11,7 +11,7 @@ const { autoUpdater } = electronUpdater
 
 // "owner/repo" of the GitHub repository that hosts the releases.
 // Keep in sync with `publish` in electron-builder.yml.
-const GITHUB_REPO = 'ocainadev/iptv-player'
+const GITHUB_REPO = 'ocainadev/telara'
 
 const [OWNER, REPO] = GITHUB_REPO.split('/')
 // IPTV_UPDATE_API points the check at a local mock of the GitHub response; it only exists to
@@ -63,7 +63,7 @@ function pickAsset(assets) {
   } else if (process.platform === 'win32') {
     found = names.find((a) => a.name.endsWith('.exe') && a.name.includes('setup'))
   } else if (process.platform === 'linux') {
-    // electron-builder names: "IPTV-Player-<ver>-x86_64.AppImage", "...-arm64.AppImage",
+    // electron-builder names: "Telara-<ver>-x86_64.AppImage", "...-arm64.AppImage",
     // "...-amd64.deb", "...-arm64.deb". A .deb install is updated by hand with the new .deb.
     const arch = process.arch === 'arm64' ? /arm64|aarch64/ : /x86_64|amd64|x64/
     const ext = app.isPackaged && !process.env.APPIMAGE ? '.deb' : '.appimage'

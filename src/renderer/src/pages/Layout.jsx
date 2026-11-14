@@ -33,7 +33,7 @@ export default function Layout() {
       <header className="topbar">
         <Link to="/" className="brand small" title="Trocar de lista" tabIndex={isTvMode() ? -1 : undefined}>
           <img src={logo} alt="" className="brand-logo" />
-          IPTV Player
+          Telara
         </Link>
         <nav>
           <NavLink replace end to={`/p/${profileId}`}>Início</NavLink>

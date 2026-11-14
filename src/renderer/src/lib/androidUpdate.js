@@ -6,7 +6,7 @@ const ApkUpdate = registerPlugin('ApkUpdate')
 
 // Keep in sync with GITHUB_REPO in src/main/updater.js and ALLOWED in ApkUpdatePlugin.java.
 // VITE_UPDATE_API only exists to test the flow against a local mock of the GitHub response.
-const API_URL = import.meta.env.VITE_UPDATE_API || 'https://api.github.com/repos/ocainadev/iptv-player/releases/latest'
+const API_URL = import.meta.env.VITE_UPDATE_API || 'https://api.github.com/repos/ocainadev/telara/releases/latest'
 
 const parse = (v) => String(v).replace(/^v/i, '').split('-')[0].split('.').map((n) => parseInt(n, 10) || 0)
 
@@ -70,7 +70,7 @@ export const androidUpdater = {
       return { ok: true }
     } catch (e) {
       if (e?.code === 'permission') {
-        return { ok: false, message: 'Permita "instalar apps desconhecidos" para o IPTV Player nas configurações e toque em Instalar de novo.' }
+        return { ok: false, message: 'Permita "instalar apps desconhecidos" para o Telara nas configurações e toque em Instalar de novo.' }
       }
       return { ok: false, message: 'Não foi possível abrir o instalador.' }
     }

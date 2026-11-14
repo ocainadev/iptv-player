@@ -25,7 +25,7 @@ import java.net.URL;
 @CapacitorPlugin(name = "ApkUpdate")
 public class ApkUpdatePlugin extends Plugin {
     // Keep in sync with the repository in src/main/updater.js and lib/androidUpdate.js.
-    private static final String ALLOWED = "https://github.com/ocainadev/iptv-player/";
+    private static final String ALLOWED = "https://github.com/ocainadev/telara/";
     // Debug builds may also fetch from the emulator host, to test with a local mock release.
     private static final String DEBUG_ALLOWED = "http://10.0.2.2:";
 

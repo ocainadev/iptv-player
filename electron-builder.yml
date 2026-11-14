@@ -1,5 +1,5 @@
 appId: local.personal.iptvplayer
-productName: IPTV Player
+productName: Telara
 directories:
   output: dist
   buildResources: build
@@ -8,7 +8,7 @@ files:
   - package.json
 dmg:
   # No spaces, for the same GitHub reason as the NSIS installer below (latest-mac.yml uses this name).
-  artifactName: IPTV-Player-${version}-${arch}.${ext}
+  artifactName: Telara-${version}-${arch}.${ext}
 mac:
   target:
     - target: dmg
@@ -37,21 +37,21 @@ linux:
   description: Personal IPTV player for Xtream Codes and M3U playlists
 appImage:
   # No spaces, for the same GitHub reason as the NSIS installer below.
-  artifactName: IPTV-Player-${version}-${arch}.${ext}
+  artifactName: Telara-${version}-${arch}.${ext}
 deb:
-  artifactName: IPTV-Player-${version}-${arch}.${ext}
+  artifactName: Telara-${version}-${arch}.${ext}
   # electron-builder's defaults lack the ALSA library, which Electron needs at startup; Ubuntu 24.04
   # renamed it to libasound2t64.
   depends: [libgtk-3-0, libnotify4, libnss3, libxss1, libxtst6, xdg-utils, libatspi2.0-0, libuuid1, libsecret-1-0, 'libasound2t64 | libasound2']
 portable:
-  artifactName: IPTV-Player-Portable-${version}.${ext}
+  artifactName: Telara-Portable-${version}.${ext}
 nsis:
   # No spaces: GitHub renames spaces to dots on upload, which would break the name in latest.yml.
-  artifactName: IPTV-Player-Setup-${version}.${ext}
+  artifactName: Telara-Setup-${version}.${ext}
   oneClick: false
   allowToChangeInstallationDirectory: true
 # Where the installed app (electron-updater) looks for new versions. Keep in sync with src/main/updater.js.
 publish:
   provider: github
   owner: ocainadev
-  repo: iptv-player
+  repo: telara

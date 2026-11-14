@@ -5,6 +5,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.WindowManager;
 import androidx.coordinatorlayout.widget.CoordinatorLayout;
 import androidx.media3.common.AudioAttributes;
 import androidx.media3.common.C;
@@ -13,11 +14,13 @@ import androidx.media3.common.PlaybackException;
 import androidx.media3.common.Format;
 import androidx.media3.common.TrackGroup;
 import androidx.media3.common.TrackSelectionOverride;
+import androidx.media3.common.TrackSelectionParameters;
 import androidx.media3.common.Tracks;
 import com.getcapacitor.JSArray;
 import java.util.Locale;
 import androidx.media3.common.Player;
 import androidx.media3.datasource.DefaultHttpDataSource;
+import androidx.media3.exoplayer.DefaultLoadControl;
 import androidx.media3.exoplayer.DefaultRenderersFactory;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory;
@@ -38,10 +41,48 @@ public class NativePlayerPlugin extends Plugin {
     private static final String USER_AGENT = "IPTVPlayer/1.0 (Linux; Android)";
     private static final int APP_BACKGROUND = Color.parseColor("#0f1115");
 
+    // Read-ahead buffer (ExoPlayer defaults are 50 s max; size cap stays at its default).
+    private static final int MIN_BUFFER_MS = 30_000;
+    private static final int MAX_BUFFER_MS = 120_000;
+    private static final int BUFFER_FOR_PLAYBACK_MS = 2_500;
+    private static final int BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS = 5_000;
+    // Auto reconnect when a stream that already played stays in BUFFERING.
+    private static final long STALL_RECONNECT_MS = 8_000;
+    private static final int MAX_RECONNECTS = 3;
+    private static final long STABLE_RESET_MS = 30_000;
+
     private final Handler main = new Handler(Looper.getMainLooper());
     private ExoPlayer player;
     private PlayerView view;
     private boolean live;
+    // Per player instance (reset in release()).
+    private boolean hasPlayed;
+    private boolean userSeeking;
+    // Per stream (reset in load/handleOnResume/stop).
+    private int reconnects;
+    private TrackSelectionParameters pendingTrackParams;
+
+    private final Runnable stallReconnect = new Runnable() {
+        @Override
+        public void run() {
+            if (player == null || lastUrl == null) return;
+            if (player.getPlaybackState() != Player.STATE_BUFFERING || !player.getPlayWhenReady()) return;
+            if (reconnects >= MAX_RECONNECTS) return;
+            reconnects++;
+            double at = live ? 0 : player.getCurrentPosition() / 1000.0;
+            pendingTrackParams = player.getTrackSelectionParameters();
+            start(lastUrl, at, true);
+            // Let a reconnect that hangs in its first buffering be retried too (counts toward the cap).
+            hasPlayed = true;
+        }
+    };
+
+    private final Runnable stableReset = new Runnable() {
+        @Override
+        public void run() {
+            reconnects = 0;
+        }
+    };
 
     private final Runnable ticker = new Runnable() {
         @Override
@@ -58,8 +99,24 @@ public class NativePlayerPlugin extends Plugin {
     };
 
     private final Player.Listener listener = new Player.Listener() {
+        // The screen must not turn off while the video plays (the user may not touch the phone).
+        @Override
+        public void onIsPlayingChanged(boolean isPlaying) {
+            keepScreenOn(isPlaying);
+            main.removeCallbacks(stableReset);
+            if (isPlaying && reconnects > 0) main.postDelayed(stableReset, STABLE_RESET_MS);
+        }
+
         @Override
         public void onPlaybackStateChanged(int state) {
+            main.removeCallbacks(stallReconnect);
+            if (state == Player.STATE_READY) {
+                hasPlayed = true;
+                userSeeking = false;
+            } else if (state == Player.STATE_BUFFERING && hasPlayed && !userSeeking
+                    && reconnects < MAX_RECONNECTS) {
+                main.postDelayed(stallReconnect, STALL_RECONNECT_MS);
+            }
             JSObject data = new JSObject();
             data.put("state", state == Player.STATE_BUFFERING ? "buffering" : state == Player.STATE_ENDED ? "ended" : state == Player.STATE_READY ? "ready" : "idle");
             notifyListeners("state", data);
@@ -144,6 +201,7 @@ public class NativePlayerPlugin extends Plugin {
             return;
         }
         live = Boolean.TRUE.equals(call.getBoolean("live", false));
+        reconnects = 0;
         double startAt = call.getDouble("startAt", 0.0);
         boolean autoPlay = call.getBoolean("autoPlay", true);
         ui(() -> {
@@ -170,10 +228,17 @@ public class NativePlayerPlugin extends Plugin {
                 .setEnableDecoderFallback(true);
             player = new ExoPlayer.Builder(getContext(), renderers)
                 .setMediaSourceFactory(new DefaultMediaSourceFactory(getContext()).setDataSourceFactory(http))
+                .setLoadControl(new DefaultLoadControl.Builder()
+                    .setBufferDurationsMs(MIN_BUFFER_MS, MAX_BUFFER_MS, BUFFER_FOR_PLAYBACK_MS, BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS)
+                    .build())
                 .setAudioAttributes(new AudioAttributes.Builder()
                     .setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MOVIE).build(), true)
                 .build();
             player.addListener(listener);
+            if (pendingTrackParams != null) {
+                player.setTrackSelectionParameters(pendingTrackParams);
+                pendingTrackParams = null;
+            }
 
             view = new PlayerView(getContext());
             view.setUseController(false);
@@ -211,6 +276,7 @@ public class NativePlayerPlugin extends Plugin {
         if (resumeUrl == null) return;
         String url = resumeUrl;
         resumeUrl = null;
+        reconnects = 0;
         if (player == null) start(url, resumeAt, false);
     }
 
@@ -266,7 +332,10 @@ public class NativePlayerPlugin extends Plugin {
     public void seekTo(PluginCall call) {
         double position = call.getDouble("position", 0.0);
         ui(() -> {
-            if (player != null) player.seekTo((long) (position * 1000));
+            if (player != null) {
+                userSeeking = true;
+                player.seekTo((long) (position * 1000));
+            }
         });
         call.resolve();
     }
@@ -275,12 +344,26 @@ public class NativePlayerPlugin extends Plugin {
     public void stop(PluginCall call) {
         resumeUrl = null;
         lastUrl = null;
-        ui(this::release);
+        ui(() -> {
+            pendingTrackParams = null;
+            release();
+        });
         call.resolve();
     }
 
+    private void keepScreenOn(boolean on) {
+        if (getActivity() == null) return;
+        if (on) getActivity().getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        else getActivity().getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+    }
+
     private void release() {
+        keepScreenOn(false);
         main.removeCallbacks(ticker);
+        main.removeCallbacks(stallReconnect);
+        main.removeCallbacks(stableReset);
+        hasPlayed = false;
+        userSeeking = false;
         if (player != null) {
             player.removeListener(listener);
             player.release();

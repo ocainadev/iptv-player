@@ -36,10 +36,22 @@ function endPipSession() {
 
 const SERVER_DOWN = 'Sem resposta do servidor. Verifique a conexão e tente de novo.'
 const UNSUPPORTED_HINT =
-  'Formato ou codec não suportado pelo Chromium (comum em MKV, HEVC/H.265 e áudio AC3/DTS).'
+  'Não foi possível reproduzir. O formato ou codec pode não ser suportado pelo Chromium (comum em MKV, HEVC/H.265 e áudio AC3/DTS), ou o servidor recusou a conexão.'
+// The video had already played: the server cut or refused the connection (many providers allow one).
+const CONNECTION_LOST =
+  'A conexão com o servidor foi cortada ou recusada. O provedor pode limitar as conexões da conta. Tente de novo em alguns segundos.'
 
 // Seconds before the next episode starts by itself when one ends.
 const NEXT_COUNTDOWN = 5
+
+// Web engine: a stream that stalls (spinner) this long after having played is assumed to be a
+// dropped provider connection, and the engine is restarted on the same url.
+const STALL_RECONNECT_MS = 8000
+const MAX_AUTO_RECONNECTS = 3
+// A playback error after the video had played is retried this many times before it is shown.
+const MAX_ERROR_RETRIES = 3
+// Playing this long without a stall gives the automatic reconnects back.
+const STABLE_RESET_MS = 30000
 
 export default function Player({ url, fallbackUrl, isLive = false, startAt = 0, onProgress, onNext, onClose, autoPlay = true, startFullscreen = false }) {
   const videoRef = useRef(null)
@@ -92,6 +104,14 @@ export default function Player({ url, fallbackUrl, isLive = false, startAt = 0, 
   const [attempt, setAttempt] = useState(0)
   // The video reached its end (VOD): offer replay / next / close instead of a dead picture.
   const [ended, setEnded] = useState(false)
+  // Automatic reconnect of the <video> engine: where to resume, whether to play, how many in a row.
+  const resumeAtRef = useRef(null)
+  const reconnectPlayRef = useRef(false)
+  const autoReconnects = useRef(0)
+  const errorRetries = useRef(0)
+  const everPlayedRef = useRef(false)
+  const lastPosRef = useRef(0)
+  const reconnectUrl = useRef(null)
   const retry = () => {
     setError('')
     setLoading(true)
@@ -191,6 +211,16 @@ export default function Player({ url, fallbackUrl, isLive = false, startAt = 0, 
     endPipSession()
     setLoading(true)
     setError('')
+    // A different stream: leftovers of the previous one's reconnects do not apply.
+    if (reconnectUrl.current !== activeUrl) {
+      reconnectUrl.current = activeUrl
+      autoReconnects.current = 0
+      errorRetries.current = 0
+      everPlayedRef.current = false
+      lastPosRef.current = 0
+      resumeAtRef.current = null
+      reconnectPlayRef.current = false
+    }
     try {
       const saved = JSON.parse(localStorage.getItem(VOLUME_KEY))
       if (saved) {
@@ -289,18 +319,83 @@ export default function Player({ url, fallbackUrl, isLive = false, startAt = 0, 
     video.addEventListener('leavepictureinpicture', onLeavePip)
 
     const onLoaded = () => {
-      if (startAt > 0 && !isLive) video.currentTime = startAt
-      if (autoPlay) video.play().catch(() => {})
+      // After an automatic reconnect, resume where the stall happened; live never seeks.
+      const resumeAt = resumeAtRef.current
+      const resumePlay = reconnectPlayRef.current
+      resumeAtRef.current = null
+      reconnectPlayRef.current = false
+      const seekTo = resumeAt ?? startAt
+      if (seekTo > 0 && !isLive) video.currentTime = seekTo
+      if (autoPlay || resumePlay) video.play().catch(() => {})
+    }
+
+    // Stall watchdog: playing before, not paused, then `waiting` for STALL_RECONNECT_MS.
+    let hasPlayed = false
+    let stallTimer = null
+    let stableTimer = null
+    const clearStall = () => {
+      clearTimeout(stallTimer)
+      stallTimer = null
+    }
+    const clearStable = () => {
+      clearTimeout(stableTimer)
+      stableTimer = null
+    }
+    const onStallTimeout = () => {
+      stallTimer = null
+      if (handedOff.current || !hasPlayed || video.paused || video.seeking || video.readyState >= 3) return
+      if (autoReconnects.current >= MAX_AUTO_RECONNECTS) return
+      autoReconnects.current += 1
+      resumeAtRef.current = isLive || !(video.currentTime > 0) ? null : video.currentTime
+      reconnectPlayRef.current = true
+      setLoading(true)
+      setAttempt((n) => n + 1)
     }
     const onPlaying = () => {
+      hasPlayed = true
+      everPlayedRef.current = true
+      clearStall()
+      clearStable()
+      stableTimer = setTimeout(() => {
+        autoReconnects.current = 0
+        errorRetries.current = 0
+      }, STABLE_RESET_MS)
       setLoading(false)
       setEnded(false)
     }
-    const onWaiting = () => setLoading(true)
+    const onWaiting = () => {
+      setLoading(true)
+      clearStable()
+      if (hasPlayed && !video.paused && !video.seeking && !stallTimer) stallTimer = setTimeout(onStallTimeout, STALL_RECONNECT_MS)
+    }
+    const onStallClear = () => {
+      clearStall()
+      if (video.paused) clearStable()
+    }
+    const stallClearEvents = ['pause', 'seeking', 'canplay']
+    stallClearEvents.forEach((ev) => video.addEventListener(ev, onStallClear))
+    let errorTimer = null
     const onVideoError = () => {
       if (hls || ts) return
+      const code = video.error?.code
+      // A video that already played does not suddenly become "unsupported": the provider cut the
+      // connection or refused the new one. Reconnect on the same url, where it stopped.
+      if (everPlayedRef.current && errorRetries.current < MAX_ERROR_RETRIES && !errorTimer) {
+        errorRetries.current += 1
+        clearStall()
+        setLoading(true)
+        const at = lastPosRef.current
+        errorTimer = setTimeout(() => {
+          errorTimer = null
+          if (handedOff.current) return
+          resumeAtRef.current = isLive || !(at > 0) ? null : at
+          reconnectPlayRef.current = true
+          setAttempt((n) => n + 1)
+        }, 2000 * errorRetries.current)
+        return
+      }
       // No extra request to the stream URL here: providers count every one as a connection.
-      fail(video.error?.code === 2 ? SERVER_DOWN : UNSUPPORTED_HINT)
+      fail(code === 2 ? SERVER_DOWN : everPlayedRef.current ? CONNECTION_LOST : UNSUPPORTED_HINT)
     }
 
     let lastReport = 0
@@ -312,7 +407,8 @@ export default function Player({ url, fallbackUrl, isLive = false, startAt = 0, 
       onProgress(video.currentTime, video.duration)
     }
 
-    const syncMedia = () =>
+    const syncMedia = () => {
+      if (video.currentTime > 0) lastPosRef.current = video.currentTime
       setMedia({
         position: video.currentTime || 0,
         duration: isFinite(video.duration) ? video.duration : -1,
@@ -320,6 +416,7 @@ export default function Player({ url, fallbackUrl, isLive = false, startAt = 0, 
         volume: video.volume,
         muted: video.muted
       })
+    }
     const mediaEvents = ['timeupdate', 'play', 'pause', 'durationchange', 'volumechange']
     mediaEvents.forEach((ev) => video.addEventListener(ev, syncMedia))
     syncMedia()
@@ -330,6 +427,8 @@ export default function Player({ url, fallbackUrl, isLive = false, startAt = 0, 
     video.addEventListener('error', onVideoError)
     video.addEventListener('timeupdate', onTime)
     const onEnded = () => {
+      clearStall()
+      clearStable()
       if (onProgress && !isLive && video.duration > 0) onProgress(video.duration, video.duration)
       setEnded(true)
       if (onNextRef.current) setAutoNext(NEXT_COUNTDOWN)
@@ -352,6 +451,9 @@ export default function Player({ url, fallbackUrl, isLive = false, startAt = 0, 
     engineRef.current = { teardown }
 
     return () => {
+      clearStall()
+      clearStable()
+      clearTimeout(errorTimer)
       if (onProgress && !isLive && video.currentTime > 0) onProgress(video.currentTime, video.duration)
       // The player screen closed while floating: the PiP session owns the stream now.
       if (handedOff.current) return
@@ -370,6 +472,7 @@ export default function Player({ url, fallbackUrl, isLive = false, startAt = 0, 
       video.removeEventListener('error', onVideoError)
       video.removeEventListener('timeupdate', onTime)
       video.removeEventListener('ended', onEnded)
+      stallClearEvents.forEach((ev) => video.removeEventListener(ev, onStallClear))
       mediaEvents.forEach((ev) => video.removeEventListener(ev, syncMedia))
       teardown()
     }

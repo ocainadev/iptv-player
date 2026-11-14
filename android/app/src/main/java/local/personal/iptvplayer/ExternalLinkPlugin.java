@@ -11,7 +11,7 @@ import com.getcapacitor.annotation.CapacitorPlugin;
 // hands it to the package installer. Only links into this project's GitHub repo.
 @CapacitorPlugin(name = "ExternalLink")
 public class ExternalLinkPlugin extends Plugin {
-    private static final String ALLOWED_PREFIX = "https://github.com/ocainadev/iptv-player/";
+    private static final String ALLOWED_PREFIX = "https://github.com/ocainadev/telara/";
 
     @PluginMethod
     public void open(PluginCall call) {

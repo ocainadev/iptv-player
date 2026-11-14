@@ -1,6 +1,6 @@
-# IPTV Player
+# Telara
 
-Personal desktop IPTV player for macOS and Windows. Electron + React.
+Personal player for your own Xtream Codes and M3U playlists, on macOS, Windows, Android and Android TV. It ships with no channels or content. Electron + React.
 
 Plays your own Xtream Codes account or M3U playlist:
 
@@ -43,8 +43,8 @@ npm run dev
 ## Build the installers
 
 ```bash
-npm run dist:mac   # dist/IPTV Player-<version>-arm64.dmg and -x64 (Intel)
-npm run dist:win   # dist/IPTV Player Setup <version>.exe and the portable .exe
+npm run dist:mac   # dist/Telara-<version>-arm64.dmg and -x64 (Intel)
+npm run dist:win   # dist/Telara-Setup-<version>.exe and Telara-Portable-<version>.exe
 npm run dist       # both
 ```
 
@@ -55,14 +55,16 @@ Builds are not signed with a paid certificate:
 
 ## Linux
 
+Linux builds are no longer published in the releases. The app still builds and runs on Linux if you want it:
+
 ```bash
-npm run dist:linux   # dist/IPTV-Player-<version>-x86_64.AppImage, -amd64.deb, -arm64.deb
+npm run dist:linux   # dist/Telara-<version>-x86_64.AppImage, -amd64.deb, -arm64.deb
 ```
 
-- **AppImage** (x86_64, any distribution): `chmod +x IPTV-Player-*.AppImage && ./IPTV-Player-*.AppImage`. It updates itself like the Windows installer (it needs `latest-linux.yml` on the GitHub release). On Ubuntu 23.10+ the AppArmor restriction on user namespaces can stop the Chromium sandbox: run it with `--no-sandbox` if it refuses to start.
-- **.deb** (Debian, Ubuntu; x86_64 and ARM64, so also Raspberry Pi OS 64-bit): `sudo apt install ./IPTV-Player-*.deb`. The package manager owns the files, so the app only shows a link to the new `.deb`.
+- **AppImage** (x86_64): `chmod +x Telara-*.AppImage && ./Telara-*.AppImage`. On Ubuntu 23.10+ the AppArmor restriction on user namespaces can stop the Chromium sandbox: run it with `--no-sandbox` if it refuses to start.
+- **.deb** (Debian, Ubuntu; x86_64 and ARM64): `sudo apt install ./Telara-*.deb`.
+- Without a published release there is nothing to update from: rebuild from a newer source to update.
 - Chromium on Linux decodes H.264/AAC and HLS, but HEVC depends on hardware decoding (VA-API) and AC3 audio does not play, as on the other desktop builds.
-- For a PC or Raspberry Pi plugged into a TV, force the remote-control interface once with `localStorage.setItem('tvMode', '1')` (DevTools console) and reload.
 
 ## Android (phone and TV)
 
@@ -72,7 +74,7 @@ Requirements: JDK 21 (Gradle 8 does not run on JDK 25+) and the Android SDK.
 
 ```bash
 export JAVA_HOME=/path/to/jdk-21
-npm run android:apk   # dist/IPTV-Player-<version>.apk, signed
+npm run android:apk   # dist/Telara-<version>.apk, signed
 ```
 
 The version comes from `package.json`. Signing uses `android/keystore.properties` (git-ignored), which points to a keystore kept **outside** the repository. Back up that keystore and its passwords: an APK signed with a different key cannot update an installed one, and Android refuses it.
@@ -83,7 +85,7 @@ Without `keystore.properties` the release build is unsigned. To install on a TV,
 
 - **Windows (installer):** downloads in the background and installs on restart (or by itself when the app is closed).
 - **macOS:** downloads the `.dmg` and swaps the app in place, then reopens it. If the app's folder is not writable, it opens the `.dmg` instead.
-- **Android / Android TV:** downloads the APK and opens the system installer. Android always asks for a confirmation, and the first time the user must allow "install unknown apps" for IPTV Player.
+- **Android / Android TV:** downloads the APK and opens the system installer. Android always asks for a confirmation, and the first time the user must allow "install unknown apps" for Telara.
 - **Windows portable:** only shows a link to the download.
 
 To release: bump `version` in `package.json`, run the desktop builds and `npm run android:apk`, then attach the `.apk` to the GitHub release (tag = version). The app's "Verificar atualizações" button reads the latest release and opens the `.apk` download.

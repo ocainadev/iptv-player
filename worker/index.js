@@ -1,4 +1,4 @@
-// Sync service for IPTV Player: stores one opaque, client-side-encrypted blob per pairing id.
+// Sync service for Telara: stores one opaque, client-side-encrypted blob per pairing id.
 // It never sees profiles, lists, passwords or what is being watched. Deploy on Cloudflare
 // Workers with a KV namespace bound as SYNC (see wrangler.toml and the README).
 

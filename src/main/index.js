@@ -4,6 +4,10 @@ import { isInstalling, registerUpdater } from './updater'
 
 const isDev = !app.isPackaged && process.env.ELECTRON_RENDERER_URL
 
+// The app used to be called "IPTV Player". Electron derives the data folder from the app name, so
+// keep the old folder: profiles, progress and settings stay where they were after the rename.
+app.setPath('userData', join(app.getPath('appData'), 'IPTV Player'))
+
 // Set by the renderer while a video plays or an update downloads: only then closing asks first.
 let busy = false
 

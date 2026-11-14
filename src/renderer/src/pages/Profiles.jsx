@@ -32,7 +32,7 @@ export default function Profiles() {
   return (
     <div className="page-center">
       <img src={logo} alt="" className="brand-logo large" />
-      <h1 className="brand">IPTV Player</h1>
+      <h1 className="brand">Telara</h1>
       <p className="muted">Escolha uma lista ou adicione uma nova.</p>
       <div className="profile-grid">
         {profiles.map((p) => (
